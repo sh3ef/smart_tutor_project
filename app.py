@@ -1,4 +1,4 @@
-# app.py - التطبيق الرئيسي للمعلم الذكي (النسخة المحدثة)
+# app.py - التطبيق الرئيسي للمعلم الذكي (مع بناء قواعد البيانات التلقائي)
 
 import os
 import sys
@@ -98,7 +98,7 @@ st.set_page_config(
 
 # متغيرات التطبيق العامة
 APP_TITLE = "🤖 المعلم الذكي السعودي"
-VERSION = "3.0 - Secure Edition"
+VERSION = "3.0 - Cloud Edition"
 
 # إعدادات الصفوف والمواد
 GRADE_SUBJECTS = {
@@ -215,64 +215,159 @@ def load_environment_variables_silently():
     except Exception:
         return None, None, None
 
-def show_diagnostic_info():
-    """عرض معلومات التشخيص (للمطورين فقط)"""
-    with st.expander("🔧 معلومات التشخيص (للمطورين)"):
-        st.write("🔍 **تشخيص النظام:**")
-        
-        try:
-            if hasattr(st, 'secrets'):
-                st.success("✅ وحدة Streamlit Secrets متاحة")
+def check_knowledge_base_status(project_id: str, location: str) -> Dict[str, Any]:
+    """فحص حالة قواعد المعرفة وإرجاع معلومات التشخيص"""
+    if not KB_MANAGER_AVAILABLE:
+        return {
+            "available": False,
+            "reason": "KnowledgeBaseManager غير متاح",
+            "docs_exist": False,
+            "dbs_exist": False,
+            "missing_docs": [],
+            "missing_dbs": []
+        }
+    
+    # فحص وجود مجلد knowledge_base_docs
+    knowledge_docs_path = "knowledge_base_docs"
+    docs_exist = os.path.exists(knowledge_docs_path)
+    
+    # فحص وجود مجلد chroma_dbs
+    chroma_dbs_path = "chroma_dbs"
+    dbs_exist = os.path.exists(chroma_dbs_path)
+    
+    missing_docs = []
+    missing_dbs = []
+    
+    # فحص تفصيلي للملفات والقواعد المطلوبة
+    for grade_key, grade_info in GRADE_SUBJECTS.items():
+        for subject_key, subject_name in grade_info['subjects'].items():
+            subject_folder = SUBJECT_FOLDERS.get(subject_key, subject_key)
+            
+            # فحص مجلد المستندات
+            docs_path = os.path.join(knowledge_docs_path, grade_key, subject_folder)
+            if not os.path.exists(docs_path) or not os.listdir(docs_path):
+                missing_docs.append(f"{grade_key}/{subject_folder}")
+            
+            # فحص قاعدة البيانات
+            collection_name = f"{grade_key}_{subject_folder.replace(' ', '_').lower()}_coll"
+            db_path = os.path.join(chroma_dbs_path, collection_name)
+            if not os.path.exists(db_path):
+                missing_dbs.append(collection_name)
+    
+    return {
+        "available": True,
+        "docs_exist": docs_exist,
+        "dbs_exist": dbs_exist,
+        "missing_docs": missing_docs,
+        "missing_dbs": missing_dbs,
+        "docs_path": knowledge_docs_path,
+        "dbs_path": chroma_dbs_path
+    }
+
+@st.cache_data
+def build_knowledge_bases_if_needed(project_id: str, location: str, force_rebuild: bool = False) -> Dict[str, Any]:
+    """بناء قواعد المعرفة إذا لم تكن موجودة"""
+    
+    status = check_knowledge_base_status(project_id, location)
+    
+    if not status["available"]:
+        return {"success": False, "message": "مدير قواعد المعرفة غير متاح"}
+    
+    # إذا لم تكن هناك مستندات أساساً، لا يمكن البناء
+    if not status["docs_exist"] or len(status["missing_docs"]) == len(GRADE_SUBJECTS) * len(SUBJECT_FOLDERS):
+        return {
+            "success": False,
+            "message": "لا توجد ملفات منهج دراسي لبناء قواعد المعرفة منها",
+            "suggestion": "تأكد من رفع مجلد knowledge_base_docs مع المشروع"
+        }
+    
+    # إذا كانت قواعد البيانات موجودة ولم يُطلب إعادة البناء
+    if status["dbs_exist"] and len(status["missing_dbs"]) == 0 and not force_rebuild:
+        return {"success": True, "message": "قواعد المعرفة موجودة ولا تحتاج إعادة بناء"}
+    
+    # بناء قواعد المعرفة المفقودة
+    results = {
+        "success": True,
+        "built_databases": [],
+        "failed_databases": [],
+        "skipped_databases": []
+    }
+    
+    total_subjects = sum(len(grade_info['subjects']) for grade_info in GRADE_SUBJECTS.values())
+    current_progress = 0
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for grade_key, grade_info in GRADE_SUBJECTS.items():
+        for subject_key, subject_name in grade_info['subjects'].items():
+            current_progress += 1
+            progress = current_progress / total_subjects
+            
+            subject_folder = SUBJECT_FOLDERS.get(subject_key, subject_key)
+            collection_name = f"{grade_key}_{subject_folder.replace(' ', '_').lower()}_coll"
+            
+            status_text.text(f"جاري بناء قاعدة المعرفة: {grade_info['name']} - {subject_name}")
+            progress_bar.progress(progress)
+            
+            # تحقق من وجود المستندات لهذه المادة
+            docs_path = os.path.join("knowledge_base_docs", grade_key, subject_folder)
+            if not os.path.exists(docs_path) or not os.listdir(docs_path):
+                results["skipped_databases"].append({
+                    "name": collection_name,
+                    "reason": "لا توجد مستندات"
+                })
+                continue
+            
+            # تحقق من وجود قاعدة البيانات
+            db_path = os.path.join("chroma_dbs", collection_name)
+            if os.path.exists(db_path) and not force_rebuild:
+                results["skipped_databases"].append({
+                    "name": collection_name,
+                    "reason": "موجودة مسبقاً"
+                })
+                continue
+            
+            try:
+                # إنشاء مدير قاعدة المعرفة
+                kb_manager = KnowledgeBaseManager(
+                    grade_folder_name=grade_key,
+                    subject_folder_name=subject_folder,
+                    project_id=project_id,
+                    location=location,
+                    force_recreate=force_rebuild
+                )
                 
-                # عرض المفاتيح المتاحة (بدون القيم الحساسة)
-                try:
-                    available_keys = list(st.secrets.keys())
-                    st.write(f"📋 المفاتيح المتاحة في Secrets: {available_keys}")
-                except Exception as e:
-                    st.warning(f"⚠️ لا يمكن قراءة قائمة المفاتيح: {e}")
-                
-                # التحقق من المتغيرات
-                project_id = st.secrets.get("GCP_PROJECT_ID")
-                credentials_json = st.secrets.get("GOOGLE_APPLICATION_CREDENTIALS_JSON")
-                
-                if project_id:
-                    st.success(f"✅ GCP_PROJECT_ID موجود: {project_id}")
+                if kb_manager.embedding_function and kb_manager.db:
+                    if kb_manager.build_knowledge_base():
+                        results["built_databases"].append(collection_name)
+                    else:
+                        results["failed_databases"].append({
+                            "name": collection_name,
+                            "reason": "فشل البناء"
+                        })
                 else:
-                    st.error("❌ GCP_PROJECT_ID غير موجود في Secrets")
-                
-                if credentials_json:
-                    st.success("✅ GOOGLE_APPLICATION_CREDENTIALS_JSON موجود")
+                    results["failed_databases"].append({
+                        "name": collection_name,
+                        "reason": "فشل تهيئة المدير"
+                    })
                     
-                    # التحقق من صحة JSON
-                    try:
-                        if isinstance(credentials_json, str):
-                            credentials_dict = json.loads(credentials_json)
-                        else:
-                            credentials_dict = credentials_json
-                            
-                        # التحقق من المفاتيح المطلوبة
-                        required_keys = ['type', 'project_id', 'private_key', 'client_email']
-                        missing_keys = [key for key in required_keys if key not in credentials_dict]
-                        
-                        if missing_keys:
-                            st.error(f"❌ مفاتيح مفقودة في بيانات الاعتماد: {missing_keys}")
-                        else:
-                            st.success("✅ بيانات الاعتماد JSON صالحة")
-                            st.write(f"🏢 Project ID في الـ JSON: {credentials_dict.get('project_id')}")
-                            st.write(f"📧 Client Email: {credentials_dict.get('client_email')}")
-                            
-                    except json.JSONDecodeError as e:
-                        st.error(f"❌ خطأ في تحليل JSON: {e}")
-                    except Exception as e:
-                        st.error(f"❌ خطأ في معالجة بيانات الاعتماد: {e}")
-                else:
-                    st.error("❌ GOOGLE_APPLICATION_CREDENTIALS_JSON غير موجود في Secrets")
-                    
-            else:
-                st.error("❌ وحدة Streamlit Secrets غير متاحة")
-                    
-        except Exception as e:
-            st.error(f"⚠️ فشل قراءة Streamlit secrets: {e}")
+            except Exception as e:
+                results["failed_databases"].append({
+                    "name": collection_name,
+                    "reason": f"خطأ: {str(e)}"
+                })
+    
+    progress_bar.progress(1.0)
+    status_text.text("اكتمل بناء قواعد المعرفة!")
+    
+    # تنظيف شريط التقدم بعد قليل
+    import time
+    time.sleep(2)
+    progress_bar.empty()
+    status_text.empty()
+    
+    return results
 
 @st.cache_resource
 def initialize_gemini_client(project_id: str, location: str):
@@ -349,6 +444,9 @@ def initialize_session_state():
    
     if 'conversation_started' not in st.session_state:
         st.session_state.conversation_started = False
+        
+    if 'knowledge_bases_built' not in st.session_state:
+        st.session_state.knowledge_bases_built = False
 
 def display_sidebar():
     """عرض الشريط الجانبي"""
@@ -434,6 +532,18 @@ def display_sidebar():
         for name, available in status_items:
             status = "✅" if available else "❌"
             st.write(f"{status} {name}")
+            
+        # عرض حالة قواعد المعرفة إذا كانت متاحة
+        if KB_MANAGER_AVAILABLE:
+            project_id, location, _ = load_environment_variables_silently()
+            if project_id:
+                kb_status = check_knowledge_base_status(project_id, location)
+                
+                st.write(f"📚 ملفات المنهج: {'✅' if kb_status['docs_exist'] else '❌'}")
+                st.write(f"🗄️ قواعد البيانات: {'✅' if kb_status['dbs_exist'] else '❌'}")
+                
+                if kb_status['missing_dbs']:
+                    st.warning(f"⚠️ {len(kb_status['missing_dbs'])} قاعدة بيانات مفقودة")
        
         if KB_MANAGER_AVAILABLE and st.button("🔍 فحص متطلبات RAG"):
             with st.spinner("جاري فحص المتطلبات..."):
@@ -455,9 +565,10 @@ def process_user_question(question: str, gemini_client, kb_manager, prompt_engin
     search_status = "not_found"
    
     if kb_manager and hasattr(kb_manager, 'db') and kb_manager.db:
-        context = retrieve_context(kb_manager, question)
-        if context:
-            search_status = "found"
+        with st.spinner("🔍 البحث في المنهج الدراسي..."):
+            context = retrieve_context(kb_manager, question)
+            if context:
+                search_status = "found"
    
     # إنشاء البرومبت المخصص
     if prompt_engine:
@@ -621,13 +732,40 @@ def main():
     # تحميل متغيرات البيئة بصمت
     project_id, location, credentials_path = load_environment_variables_silently()
     
-    # عرض تشخيص النظام للمطورين فقط
-    show_diagnostic_info()
-    
     if not project_id:
         st.error("❌ لم يتم تعيين بيانات Google Cloud في Streamlit Secrets")
         st.info("💡 يرجى إضافة المتغيرات المطلوبة في إعدادات التطبيق")
         st.stop()
+    
+    # فحص وبناء قواعد المعرفة إذا لزم الأمر
+    if not st.session_state.knowledge_bases_built:
+        st.info("🔄 جاري فحص قواعد المعرفة...")
+        
+        kb_status = check_knowledge_base_status(project_id, location)
+        
+        if not kb_status["docs_exist"]:
+            st.warning("⚠️ لا توجد ملفات منهج دراسي. سيعمل المعلم الذكي بالمعرفة العامة فقط.")
+            st.session_state.knowledge_bases_built = True
+        elif kb_status["missing_dbs"]:
+            st.warning(f"⚠️ {len(kb_status['missing_dbs'])} قاعدة بيانات مفقودة. جاري البناء التلقائي...")
+            
+            with st.spinner("🏗️ جاري بناء قواعد المعرفة... قد يستغرق هذا بضع دقائق في المرة الأولى."):
+                build_result = build_knowledge_bases_if_needed(project_id, location)
+                
+                if build_result["success"]:
+                    if "built_databases" in build_result:
+                        st.success(f"✅ تم بناء {len(build_result['built_databases'])} قاعدة معرفة بنجاح!")
+                    if "failed_databases" in build_result and build_result["failed_databases"]:
+                        st.warning(f"⚠️ فشل بناء {len(build_result['failed_databases'])} قاعدة معرفة")
+                else:
+                    st.error(f"❌ {build_result['message']}")
+                    if "suggestion" in build_result:
+                        st.info(f"💡 {build_result['suggestion']}")
+            
+            st.session_state.knowledge_bases_built = True
+        else:
+            st.success("✅ قواعد المعرفة جاهزة!")
+            st.session_state.knowledge_bases_built = True
    
     # عرض الشريط الجانبي
     selected_grade, selected_subject = display_sidebar()
