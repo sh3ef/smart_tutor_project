@@ -18,3 +18,4 @@ numpy
 pandas
 setuptools<81
 pydantic>=1.10.0,<2.0.0
+docx2txt>=0.8
