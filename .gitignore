@@ -1,45 +1,19 @@
-# .gitignore للمعلم الذكي السعودي - النسخة الآمنة
+# .gitignore للمعلم الذكي السعودي - النسخة المحدثة
 
-# ========================
-# ⚠️ بيانات حساسة - ممنوع رفعها نهائياً
-# ========================
-
-# Google Cloud Credentials (ممنوع رفعها)
-*.json
-service-account*.json
-credentials/*.json
-*service-account*
-*credential*
-*key*.json
-
-# Environment variables (ممنوع رفعها)
+# Environment variables
 .env
 .env.local
 .env.production
-.env.staging
-.env.development
 
-# Streamlit Secrets (ممنوع رفعها)
-.streamlit/secrets.toml
-secrets.toml
-*secrets*
-
-# API Keys وكلمات المرور (ممنوع رفعها)
-*api_key*
-*password*
-*secret*
-*token*
-*credential*
-
-# ========================
-# ملفات Python المعتادة
-# ========================
+# Google Cloud Credentials
+*.json
+service-account*.json
+credentials/*.json
 
 # Virtual Environment
 venv/
 env/
 .venv/
-.env/
 
 # Python
 __pycache__/
@@ -62,17 +36,11 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
 
-# ========================
-# قواعد البيانات والتخزين
-# ========================
-
-# ChromaDB
+# ChromaDB - لن نرفعها، ستُبنى تلقائياً على Cloud
 chroma_dbs/
 *.db
 *.sqlite
-*.sqlite3
 
 # Generated Images
 generated_images_vertex_pil/
@@ -80,60 +48,25 @@ generated_images_vertex_pil/
 *.png
 *.jpg
 
-# ========================
-# ملفات النظام والتطوير
-# ========================
+# Logs
+*.log
+logs/
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*.tmp
 
 # OS
 .DS_Store
 Thumbs.db
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 
-# Logs
-*.log
-logs/
+# Streamlit Secrets (حساس - لا يُرفع أبداً)
+.streamlit/secrets.toml
 
-# Temporary files
-temp/
-tmp/
-*.tmp
-*.bak
-*.backup
-
-# ========================
-# ملفات خاصة بالمشروع
-# ========================
-
-# Knowledge base files (إذا كانت حساسة)
-knowledge_base_docs/
-
-# Test files
-test_*.py
-*_test.py
-
-# Coverage reports
-htmlcov/
-.coverage
-.coverage.*
-coverage.xml
-
-# ========================
-# تأكيد نهائي - أي ملف يحتوي على كلمات حساسة
-# ========================
-
-# أي ملف يحتوي على هذه الكلمات في اسمه
-*private*
-*secure*
-*confidential*
-*internal*
+# ملاحظات مهمة:
+# ✅ knowledge_base_docs/ سيُرفع (مهم جداً!)
+# ❌ chroma_dbs/ لن يُرفع (سيُبنى تلقائياً)
+# ✅ .streamlit/config.toml سيُرفع
+# ❌ .streamlit/secrets.toml لن يُرفع (أمان)
