@@ -57,13 +57,12 @@ RAG_REQUIREMENTS_MET = (
     CHROMADB_AVAILABLE
 )
 
-# النماذج المدعومة فعلاً مع langchain-google-vertexai 0.1.3
+# النماذج المدعومة فعلاً (مرتبة حسب الأولوية)
 EMBEDDING_MODELS = [
-    "textembedding-gecko@003",      # الأحدث والأكثر استقراراً
-    "textembedding-gecko@002",      # نسخة سابقة مستقرة  
-    "textembedding-gecko@001",      # نسخة قديمة لكن مدعومة
-    "textembedding-gecko",          # الافتراضي (يستخدم @003)
-    "textembedding-gecko-multilingual@001",  # متعدد اللغات
+    "gemini-embedding-001",         # الأحدث والأفضل - 3072 dimensions
+    "text-embedding-005",           # نموذج حديث - 768 dimensions  
+    "text-embedding-004",           # نموذج مستقر - 768 dimensions
+    "textembedding-gecko@latest",   # محاولة أخيرة للنماذج القديمة
 ]
 
 class KnowledgeBaseManager:
@@ -129,7 +128,7 @@ class KnowledgeBaseManager:
         )
 
     def _init_embeddings(self):
-        """تهيئة دوال التضمين من Vertex AI مع محاولة النماذج المدعومة"""
+        """تهيئة دوال التضمين من Vertex AI مع النماذج المدعومة الجديدة"""
         try:
             # البحث عن بيانات الاعتماد
             cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
@@ -164,11 +163,12 @@ class KnowledgeBaseManager:
 
             # تهيئة Vertex AI
             vertexai.init(project=self.project_id, location=self.location)
+            print(f"KB_MANAGER INFO: تم تهيئة Vertex AI للمشروع '{self.project_id}' في المنطقة '{self.location}'")
             
             # محاولة النماذج المدعومة بالترتيب
             for model_name in EMBEDDING_MODELS:
                 try:
-                    print(f"KB_MANAGER INFO: محاولة نموذج التضمين '{model_name}' للمشروع: {self.project_id}")
+                    print(f"KB_MANAGER INFO: محاولة نموذج التضمين '{model_name}'...")
                     
                     # إنشاء نموذج التضمين
                     self.embedding_function = VertexAIEmbeddings(
@@ -179,10 +179,15 @@ class KnowledgeBaseManager:
                     
                     # اختبار النموذج بنص بسيط
                     try:
-                        test_embedding = self.embedding_function.embed_query("اختبار")
+                        test_embedding = self.embedding_function.embed_query("اختبار النموذج")
                         if test_embedding and len(test_embedding) > 0:
                             self.current_model = model_name
-                            print(f"KB_MANAGER SUCCESS: تم تهيئة VertexAIEmbeddings بنجاح باستخدام نموذج '{model_name}'.")
+                            embedding_dim = len(test_embedding)
+                            print(f"KB_MANAGER SUCCESS: ✅ تم تهيئة VertexAIEmbeddings بنجاح!")
+                            print(f"  النموذج: {model_name}")
+                            print(f"  أبعاد التضمين: {embedding_dim}")
+                            print(f"  المشروع: {self.project_id}")
+                            print(f"  المنطقة: {self.location}")
                             return
                     except Exception as test_error:
                         print(f"KB_MANAGER WARNING: فشل اختبار النموذج '{model_name}': {test_error}")
@@ -192,36 +197,19 @@ class KnowledgeBaseManager:
                     print(f"KB_MANAGER WARNING: فشل تهيئة نموذج '{model_name}': {model_error}")
                     continue
             
-            # إذا فشلت جميع النماذج، جرب النموذج الافتراضي بدون model_name
-            try:
-                print(f"KB_MANAGER INFO: محاولة النموذج الافتراضي (بدون تحديد model_name)")
-                self.embedding_function = VertexAIEmbeddings(
-                    project=self.project_id,
-                    location=self.location
-                )
-                
-                # اختبار النموذج الافتراضي
-                test_embedding = self.embedding_function.embed_query("اختبار")
-                if test_embedding and len(test_embedding) > 0:
-                    self.current_model = "default"
-                    print(f"KB_MANAGER SUCCESS: تم تهيئة VertexAIEmbeddings بنجاح باستخدام النموذج الافتراضي.")
-                    return
-                    
-            except Exception as default_error:
-                print(f"KB_MANAGER WARNING: فشل النموذج الافتراضي: {default_error}")
-            
-            # إذا فشلت جميع المحاولات
+            # إذا فشلت جميع النماذج
             print(f"KB_MANAGER ERROR: فشلت جميع نماذج التضمين المتاحة.")
+            print(f"تأكد من:")
+            print(f"1. تفعيل Vertex AI API في مشروع '{self.project_id}'")
+            print(f"2. أن حساب الخدمة لديه صلاحية 'Vertex AI User'")
+            print(f"3. أن المشروع يدعم نماذج التضمين في المنطقة '{self.location}'")
+            print(f"4. أن المشروع ليس جديداً (النماذج الجديدة تحتاج استخدام سابق)")
             self.embedding_function = None
             self.current_model = None
             
         except Exception as e:
-            print(f"KB_MANAGER ERROR: فشل تهيئة VertexAIEmbeddings لـ {self.collection_name}: {e}")
-            print(f"تأكد من:")
-            print(f"1. GOOGLE_APPLICATION_CREDENTIALS مضبوط بشكل صحيح")
-            print(f"2. حساب الخدمة له صلاحية Vertex AI User")
-            print(f"3. Vertex AI API مُفعل في مشروع '{self.project_id}'")
-            print(f"4. المشروع يدعم نماذج التضمين في المنطقة '{self.location}'")
+            print(f"KB_MANAGER ERROR: فشل عام في تهيئة VertexAIEmbeddings: {e}")
+            traceback.print_exc()
             self.embedding_function = None
             self.current_model = None
 
@@ -235,7 +223,7 @@ class KnowledgeBaseManager:
         os.makedirs(CHROMA_DB_PARENT_DIRECTORY, exist_ok=True)
         os.makedirs(self.vector_store_path, exist_ok=True)
 
-        print(f"KB_MANAGER INFO: تهيئة ChromaDB لمجموعة '{self.collection_name}' في: {self.vector_store_path}")
+        print(f"KB_MANAGER INFO: تهيئة ChromaDB لمجموعة '{self.collection_name}' باستخدام النموذج '{self.current_model}'")
 
         try:
             client = chromadb.PersistentClient(path=self.vector_store_path)
@@ -357,7 +345,9 @@ class KnowledgeBaseManager:
             self.db.add_documents(split_docs)
 
             count_after_build = self.db._collection.count()
-            print(f"KB_MANAGER INFO: تم بناء قاعدة المعرفة لـ {self.collection_name} بنجاح مع {count_after_build} عنصر.")
+            print(f"KB_MANAGER SUCCESS: ✅ تم بناء قاعدة المعرفة لـ {self.collection_name} بنجاح!")
+            print(f"  عدد الأجزاء: {count_after_build}")
+            print(f"  النموذج المستخدم: {self.current_model}")
             return True
         except Exception as e_build:
             print(f"KB_MANAGER ERROR: فشل بناء ChromaDB لـ {self.collection_name}: {e_build}")
