@@ -57,13 +57,13 @@ RAG_REQUIREMENTS_MET = (
     CHROMADB_AVAILABLE
 )
 
-# أسماء النماذج المدعومة - بترتيب الأولوية
+# النماذج المدعومة فعلاً مع langchain-google-vertexai 0.1.3
 EMBEDDING_MODELS = [
-    "text-embedding-004",           # الأحدث والأفضل
-    "textembedding-gecko@003",      # مستقر وموثوق
-    "textembedding-gecko@002",      # نسخة سابقة
-    "textembedding-gecko@001",      # الأقدم
-    "textembedding-gecko"           # الافتراضي
+    "textembedding-gecko@003",      # الأحدث والأكثر استقراراً
+    "textembedding-gecko@002",      # نسخة سابقة مستقرة  
+    "textembedding-gecko@001",      # نسخة قديمة لكن مدعومة
+    "textembedding-gecko",          # الافتراضي (يستخدم @003)
+    "textembedding-gecko-multilingual@001",  # متعدد اللغات
 ]
 
 class KnowledgeBaseManager:
@@ -129,7 +129,7 @@ class KnowledgeBaseManager:
         )
 
     def _init_embeddings(self):
-        """تهيئة دوال التضمين من Vertex AI مع محاولة نماذج متعددة"""
+        """تهيئة دوال التضمين من Vertex AI مع محاولة النماذج المدعومة"""
         try:
             # البحث عن بيانات الاعتماد
             cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
@@ -165,40 +165,63 @@ class KnowledgeBaseManager:
             # تهيئة Vertex AI
             vertexai.init(project=self.project_id, location=self.location)
             
-            # محاولة النماذج بالترتيب حتى نجد واحد يعمل
+            # محاولة النماذج المدعومة بالترتيب
             for model_name in EMBEDDING_MODELS:
                 try:
                     print(f"KB_MANAGER INFO: محاولة نموذج التضمين '{model_name}' للمشروع: {self.project_id}")
                     
+                    # إنشاء نموذج التضمين
                     self.embedding_function = VertexAIEmbeddings(
                         model_name=model_name,
                         project=self.project_id,
                         location=self.location
                     )
                     
-                    # اختبار النموذج بسؤال بسيط
-                    test_embedding = self.embedding_function.embed_query("test")
-                    if test_embedding and len(test_embedding) > 0:
-                        self.current_model = model_name
-                        print(f"KB_MANAGER SUCCESS: تم تهيئة VertexAIEmbeddings بنجاح باستخدام نموذج '{model_name}'.")
-                        return
+                    # اختبار النموذج بنص بسيط
+                    try:
+                        test_embedding = self.embedding_function.embed_query("اختبار")
+                        if test_embedding and len(test_embedding) > 0:
+                            self.current_model = model_name
+                            print(f"KB_MANAGER SUCCESS: تم تهيئة VertexAIEmbeddings بنجاح باستخدام نموذج '{model_name}'.")
+                            return
+                    except Exception as test_error:
+                        print(f"KB_MANAGER WARNING: فشل اختبار النموذج '{model_name}': {test_error}")
+                        continue
                         
                 except Exception as model_error:
-                    print(f"KB_MANAGER WARNING: فشل نموذج '{model_name}': {model_error}")
+                    print(f"KB_MANAGER WARNING: فشل تهيئة نموذج '{model_name}': {model_error}")
                     continue
             
-            # إذا فشلت جميع النماذج
+            # إذا فشلت جميع النماذج، جرب النموذج الافتراضي بدون model_name
+            try:
+                print(f"KB_MANAGER INFO: محاولة النموذج الافتراضي (بدون تحديد model_name)")
+                self.embedding_function = VertexAIEmbeddings(
+                    project=self.project_id,
+                    location=self.location
+                )
+                
+                # اختبار النموذج الافتراضي
+                test_embedding = self.embedding_function.embed_query("اختبار")
+                if test_embedding and len(test_embedding) > 0:
+                    self.current_model = "default"
+                    print(f"KB_MANAGER SUCCESS: تم تهيئة VertexAIEmbeddings بنجاح باستخدام النموذج الافتراضي.")
+                    return
+                    
+            except Exception as default_error:
+                print(f"KB_MANAGER WARNING: فشل النموذج الافتراضي: {default_error}")
+            
+            # إذا فشلت جميع المحاولات
             print(f"KB_MANAGER ERROR: فشلت جميع نماذج التضمين المتاحة.")
             self.embedding_function = None
             self.current_model = None
             
         except Exception as e:
             print(f"KB_MANAGER ERROR: فشل تهيئة VertexAIEmbeddings لـ {self.collection_name}: {e}")
-            print(f"الرجاء التأكد مما يلي:")
-            print(f"1. GOOGLE_APPLICATION_CREDENTIALS مضبوط على المسار الصحيح.")
-            print(f"2. حساب الخدمة لديه الصلاحيات المناسبة (Vertex AI User أو أدوار أوسع).")
-            print(f"3. Vertex AI API (aiplatform.googleapis.com) مُمكن في مشروع GCP '{self.project_id}'.")
-            print(f"4. نماذج التضمين متاحة في المنطقة '{self.location}'.")
+            print(f"تأكد من:")
+            print(f"1. GOOGLE_APPLICATION_CREDENTIALS مضبوط بشكل صحيح")
+            print(f"2. حساب الخدمة له صلاحية Vertex AI User")
+            print(f"3. Vertex AI API مُفعل في مشروع '{self.project_id}'")
+            print(f"4. المشروع يدعم نماذج التضمين في المنطقة '{self.location}'")
             self.embedding_function = None
             self.current_model = None
 
