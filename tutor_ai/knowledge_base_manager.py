@@ -46,8 +46,6 @@ except ImportError:
 
 try:
     import chromadb
-    # لم نعد نحتاج Settings هنا مباشرة، ولكن للتأكد من أن المكتبة نفسها موجودة
-    # from chromadb.config import Settings # لم تعد تُستخدم بهذه الطريقة
     CHROMADB_AVAILABLE = True
 except ImportError:
     print("KB_MANAGER WARNING: ChromaDB not available. Please install chromadb.")
@@ -61,9 +59,8 @@ RAG_REQUIREMENTS_MET = (
     CHROMADB_AVAILABLE
 )
 
-# اسم النموذج المستخدم للـ embeddings
-EMBEDDING_MODEL_NAME = "text-embedding-004"
-
+# اسم النموذج المستخدم للـ embeddings - مُحدث للاستقرار
+EMBEDDING_MODEL_NAME = "text-embedding-gecko@001"  # نموذج أكثر استقراراً
 
 class KnowledgeBaseManager:
     """مدير قاعدة المعرفة مع دعم ChromaDB و Vertex AI Embeddings"""
@@ -75,31 +72,28 @@ class KnowledgeBaseManager:
         تهيئة مدير قاعدة المعرفة
 
         Args:
-            grade_folder_name: اسم مجلد الصف (مثل "1st_grade")
+            grade_folder_name: اسم مجلد الصف (مثل "grade_1")
             subject_folder_name: اسم مجلد المادة (مثل "lughati", "Math")
             project_id: معرف مشروع Google Cloud
             location: موقع Vertex AI
             force_recreate: إجبار إعادة إنشاء قاعدة البيانات
         """
-        self.grade_folder = grade_folder_name # استخدام اسم grade_folder لأسباب التوافق
-        self.subject_folder = subject_folder_name # استخدام اسم subject_folder لأسباب التوافق
+        self.grade_folder = grade_folder_name
+        self.subject_folder = subject_folder_name
         self.project_id = project_id
         self.location = location
 
         # إنشاء اسم فريد للـ collection في ChromaDB
-        # التأكد من تنظيف الأسماء لتجنب مشاكل في أسماء الـ collections أو المسارات
         clean_grade_folder = grade_folder_name.replace(" ", "_").lower()
         subject_folder_cleaned = subject_folder_name.replace(" ", "_").lower()
         # استبدال أسماء المواد العربية بأسماء إنجليزية لأسماء الكوليكشن
         subject_folder_cleaned = subject_folder_cleaned.replace("الدراسات_الاسلامية", "islamic_studies")
         subject_folder_cleaned = subject_folder_cleaned.replace("المهارات_الأسرية", "family_skills")
-        # اسم الـ collection في ChromaDB يجب أن يكون صالحًا
         self.collection_name = f"{clean_grade_folder}_{subject_folder_cleaned}_coll"
 
         self.docs_path = os.path.join(KNOWLEDGE_BASE_PARENT_DOCS_DIR, self.grade_folder, self.subject_folder)
         # مسار تخزين ChromaDB
         self.vector_store_path = os.path.join(CHROMA_DB_PARENT_DIRECTORY, self.collection_name)
-
 
         # التحقق من توفر المتطلبات الأساسية قبل المتابعة
         if not RAG_REQUIREMENTS_MET:
@@ -114,9 +108,9 @@ class KnowledgeBaseManager:
 
         # تهيئة دالة التضمين (Embedding Function)
         self.embedding_function: Optional[VertexAIEmbeddings] = None
-        self._init_embeddings() # استدعاء دالة التهيئة
+        self._init_embeddings()
 
-        # حذف قاعدة البيانات القديمة إذا طُلب ذلك (قبل تهيئة الـ DB)
+        # حذف قاعدة البيانات القديمة إذا طُلب ذلك
         if force_recreate and os.path.exists(self.vector_store_path):
             print(f"KB_MANAGER INFO: إجبار إعادة الإنشاء. حذف بيانات ChromaDB الموجودة في: {self.vector_store_path}")
             try:
@@ -127,37 +121,57 @@ class KnowledgeBaseManager:
 
         # تهيئة قاعدة البيانات (Vector Store)
         self.db: Optional[Chroma] = None
-        if self.embedding_function: # تأكد أن دالة التضمين جاهزة قبل تهيئة DB
+        if self.embedding_function:
             self._initialize_vector_store()
 
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=200,
             length_function=len,
-            is_separator_regex=False, # تأكد من أن هذا ليس regex
+            is_separator_regex=False,
         )
-
 
     def _init_embeddings(self):
         """تهيئة دوال التضمين من Vertex AI"""
         try:
+            # البحث عن بيانات الاعتماد في متغيرات البيئة
             cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-            if not cred_path or cred_path == "path/to/your/service-account-key.json":
-                print(f"KB_MANAGER ERROR: GOOGLE_APPLICATION_CREDENTIALS غير مضبوط بشكل صحيح. القيمة الحالية: '{cred_path}'")
-                print("الرجاء تحديث ملف .env بالمسار الصحيح لملف مفتاح حساب الخدمة الخاص بك.")
-                self.embedding_function = None
-                return
+            
+            # إذا لم تجد في متغير البيئة، تحقق من Streamlit Secrets
+            if not cred_path or not os.path.exists(cred_path):
+                try:
+                    import streamlit as st
+                    if hasattr(st, 'secrets'):
+                        # محاولة استخدام الملف المؤقت الذي أنشأه app.py
+                        import tempfile
+                        import json
+                        
+                        credentials_json = st.secrets.get("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+                        if credentials_json:
+                            if isinstance(credentials_json, str):
+                                credentials_dict = json.loads(credentials_json)
+                            else:
+                                credentials_dict = credentials_json
+                            
+                            # إنشاء ملف مؤقت
+                            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                                json.dump(credentials_dict, f)
+                                cred_path = f.name
+                                os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = cred_path
+                                print(f"KB_MANAGER INFO: تم إنشاء ملف مؤقت للاعتماد: {cred_path}")
+                except:
+                    pass
 
-            if not os.path.exists(cred_path):
-                print(f"KB_MANAGER ERROR: ملف مفتاح حساب الخدمة غير موجود: {cred_path}")
+            if not cred_path or not os.path.exists(cred_path):
+                print(f"KB_MANAGER ERROR: GOOGLE_APPLICATION_CREDENTIALS غير مضبوط بشكل صحيح.")
                 self.embedding_function = None
                 return
 
             vertexai.init(project=self.project_id, location=self.location)
             self.embedding_function = VertexAIEmbeddings(
                 model_name=EMBEDDING_MODEL_NAME,
-                project=self.project_id, # تحديد المشروع صراحة
-                location=self.location  # تحديد الموقع صراحة
+                project=self.project_id,
+                location=self.location
             )
             print(f"KB_MANAGER INFO: تم تهيئة VertexAIEmbeddings لنموذج '{EMBEDDING_MODEL_NAME}' بنجاح للمشروع: {self.project_id}.")
         except Exception as e:
@@ -168,7 +182,6 @@ class KnowledgeBaseManager:
             print(f"3. Vertex AI API (aiplatform.googleapis.com) مُمكن في مشروع GCP '{self.project_id}'.")
             print(f"4. نموذج التضمين '{EMBEDDING_MODEL_NAME}' متاح في المنطقة '{self.location}'.")
             self.embedding_function = None
-
 
     def _initialize_vector_store(self) -> None:
         """تهيئة مخزن المتجهات (ChromaDB)"""
@@ -183,22 +196,14 @@ class KnowledgeBaseManager:
         print(f"KB_MANAGER INFO: تهيئة ChromaDB لمجموعة '{self.collection_name}' في: {self.vector_store_path}")
 
         try:
-            # الطريقة الجديدة لتهيئة ChromaDB مع PersistentClient
-            # (وفقاً للتحذير الذي ظهر لك)
             client = chromadb.PersistentClient(path=self.vector_store_path)
 
             self.db = Chroma(
                 client=client,
                 collection_name=self.collection_name,
                 embedding_function=self.embedding_function,
-                # persist_directory لم يعد مطلوباً هنا لأنه محدد في PersistentClient
             )
             
-            # التحقق من عدد المستندات الموجودة (اختياري لكن مفيد)
-            # هذه الطريقة للتحقق من عدد المستندات قد تختلف بناءً على إصدار ChromaDB
-            # في بعض الإصدارات الأحدث، قد تحتاج للوصول إلى collection objects
-            # self.db._collection.count() قد لا يعمل مباشرة، يمكن استخدام client.get_or_create_collection
-            # ولكن for simplicity سنبقيها كما هي إذا كانت تعمل حالياً.
             try:
                 count = self.db._collection.count()
                 print(f"KB_MANAGER INFO: تم تحميل مجموعة ChromaDB '{self.collection_name}' الموجودة مع {count} عنصر.")
@@ -206,13 +211,11 @@ class KnowledgeBaseManager:
                     print(f"KB_MANAGER INFO: مجموعة '{self.collection_name}' فارغة. قد تحتاج إلى بنائها.")
             except Exception as e_count:
                 print(f"KB_MANAGER WARNING: تعذر الحصول على عدد المستندات في المجموعة '{self.collection_name}': {e_count}")
-                # قد يكون هذا طبيعياً إذا كانت المجموعة لم تُنشأ بعد فعلياً.
 
         except Exception as e:
             print(f"KB_MANAGER ERROR: فشل تهيئة قاعدة البيانات ChromaDB لمجموعة '{self.collection_name}': {e}")
             traceback.print_exc()
             self.db = None
-
 
     def _load_documents(self) -> List[Document]:
         """تحميل المستندات من المجلد المحدد"""
@@ -237,8 +240,6 @@ class KnowledgeBaseManager:
             "**/*.md": {"loader_cls": UnstructuredMarkdownLoader, "loader_kwargs": {}},
             "**/*.txt": {"loader_cls": TextLoader, "loader_kwargs": {'encoding': 'utf-8'}},
             "**/*.docx": {"loader_cls": Docx2txtLoader, "loader_kwargs": {}},
-            # يمكن إضافة دعم PDF هنا، يتطلب تثبيت التبعيات (مثل unstructured, pypdf)
-            # "**/*.pdf": {"loader_cls": PyPDFLoader, "loader_kwargs": {}},
         }
 
         for glob_pattern, handler_config in file_handlers.items():
@@ -270,7 +271,6 @@ class KnowledgeBaseManager:
             print(f"KB_MANAGER WARNING: لم يتم تحميل أي مستندات بنجاح من {self.docs_path}.")
         return all_docs
 
-
     def _split_documents(self, documents: List[Document]) -> List[Document]:
         """تقسيم المستندات إلى قطع أصغر"""
         if not documents:
@@ -279,7 +279,6 @@ class KnowledgeBaseManager:
         split_docs = self.text_splitter.split_documents(documents)
         print(f"KB_MANAGER INFO: تم تقسيم {len(documents)} مستند إلى {len(split_docs)} جزء لـ {self.collection_name}.")
         return split_docs
-
 
     def build_knowledge_base(self) -> bool:
         """بناء قاعدة المعرفة"""
@@ -291,7 +290,6 @@ class KnowledgeBaseManager:
             print(f"KB_MANAGER ERROR: دالة التضمين غير مهيأة لـ {self.collection_name}.")
             return False
 
-        # إذا لم يتم تهيئة الـ db بعد (قد يحدث إذا كانت DB فارغة أو واجهت مشكلة في التهيئة الأولية)
         if not self.db:
             print(f"KB_MANAGER INFO: إعادة محاولة تهيئة ChromaDB لـ {self.collection_name} قبل البناء.")
             self._initialize_vector_store()
@@ -304,9 +302,7 @@ class KnowledgeBaseManager:
        
         if not documents:
             print(f"KB_MANAGER WARNING: لم يتم العثور على مستندات لبناء قاعدة المعرفة لـ {self.collection_name}.")
-            # في هذه الحالة، يمكننا ببساطة التأكد من وجود Collection فارغة
-            # (وهذا قد تم بالفعل في _initialize_vector_store)
-            return True # لا يوجد شيء للبناء، ولكن العملية لم تفشل
+            return True
 
         split_docs = self._split_documents(documents)
         if not split_docs:
@@ -316,13 +312,7 @@ class KnowledgeBaseManager:
         try:
             print(f"KB_MANAGER INFO: ملء مجموعة ChromaDB '{self.collection_name}' بـ {len(split_docs)} جزء...")
             
-            # Add documents to the existing db instance
-            # ( assuming _initialize_vector_store has already created a valid self.db )
             self.db.add_documents(split_docs)
-
-            # with PersistentClient, .persist() is often not explicitly needed
-            # as changes are saved automatically.
-            # self.db.persist() # يمكن إزالة هذا السطر
 
             count_after_build = self.db._collection.count()
             print(f"KB_MANAGER INFO: تم بناء قاعدة المعرفة لـ {self.collection_name} بنجاح مع {count_after_build} عنصر.")
@@ -333,7 +323,6 @@ class KnowledgeBaseManager:
             self.db = None
             return False
 
-
     def get_retriever(self, search_type: str = "similarity", k_results: int = 3) -> Optional[Any]:
         """الحصول على أداة استرجاع الوثائق"""
         if not self.db:
@@ -341,22 +330,14 @@ class KnowledgeBaseManager:
             return None
            
         try:
-            # التأكد من أن هناك عناصر في الـ collection قبل الحصول على retriever
-            # قد يؤدي استدعاء .count() على مجموعة فارغة تمامًا (قبل أول add_documents) إلى خطأ في بعض إصدارات ChromaDB
-            # لذا، يمكن أن نتحقق من `self.db` فقط، ونتوقع من retriever أن يتعامل مع الـ collection الفارغة.
-            # if self.db._collection.count() > 0: # هذا الفحص قد يسبب مشاكل
             return self.db.as_retriever(
                 search_type=search_type,
                 search_kwargs={"k": k_results}
             )
-            # else:
-            #     print(f"KB_MANAGER WARNING: مجموعة ChromaDB '{self.collection_name}' فارغة، قد لا تعمل أداة الاسترجاع بشكل فعال.")
-            #     return self.db.as_retriever(search_type=search_type, search_kwargs={"k": k_results})
         except Exception as e_retriever:
             print(f"KB_MANAGER ERROR: تعذر الحصول على أداة الاسترجاع للمجموعة '{self.collection_name}': {e_retriever}")
             traceback.print_exc()
             return None
-
 
     def search_documents(self, query: str, k_results: int = 3) -> List[Document]:
         """البحث المباشر في الوثائق"""
@@ -372,7 +353,6 @@ class KnowledgeBaseManager:
             print(f"KB_MANAGER ERROR: فشل البحث لـ '{self.collection_name}': {e}")
             traceback.print_exc()
             return []
-
 
     def get_database_info(self) -> Dict:
         """الحصول على معلومات قاعدة البيانات"""
@@ -396,7 +376,6 @@ class KnowledgeBaseManager:
        
         return info
 
-
 def check_rag_requirements():
     """فحص توفر متطلبات RAG"""
     requirements = {
@@ -414,8 +393,6 @@ def check_rag_requirements():
    
     return requirements
 
-
-# دالة مساعدة لإنشاء مديري قواعد المعرفة لجميع المواد
 def create_all_knowledge_base_managers(grade_subjects_config: Dict[str, str],
                                      target_grade_folder: str,
                                      project_id: str,
@@ -451,16 +428,15 @@ def create_all_knowledge_base_managers(grade_subjects_config: Dict[str, str],
             )
            
             if manager.embedding_function and manager.db:
-                # إذا كانت قاعدة المعرفة جاهزة، حاول بناءها (أو تحميلها)
-                if manager.build_knowledge_base(): # هذه الدالة تقوم بتحميل المستندات وبناء الـ DB
+                if manager.build_knowledge_base():
                     managers[manager_key] = manager
                     print(f"KB_MANAGER SUCCESS: تم إنشاء مدير قاعدة المعرفة وبنائها/تحميلها بنجاح: {manager_key}")
                 else:
                     print(f"KB_MANAGER WARNING: فشل بناء قاعدة المعرفة أو كانت فارغة: {manager_key}. قد لا تعمل أداة الاسترجاع بفعالية.")
-                    managers[manager_key] = manager # لا يزال بإمكاننا إرجاع المدير حتى لو كان فارغاً
+                    managers[manager_key] = manager
             else:
                 print(f"KB_MANAGER ERROR: فشل تهيئة مدير قاعدة المعرفة: {manager_key}. دالة التضمين أو قاعدة البيانات غير جاهزة.")
-                managers[manager_key] = None # ضع None إذا فشل التهيئة بالكامل
+                managers[manager_key] = None
                
         except Exception as e:
             print(f"KB_MANAGER ERROR: خطأ عام في إنشاء مدير قاعدة المعرفة {manager_key}: {e}")
@@ -468,7 +444,6 @@ def create_all_knowledge_base_managers(grade_subjects_config: Dict[str, str],
             managers[manager_key] = None
    
     return managers
-
 
 if __name__ == "__main__":
     print("KB_MANAGER INFO: اختبار KnowledgeBaseManager...")
@@ -479,7 +454,7 @@ if __name__ == "__main__":
     test_credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
     # قم بإنشاء مجلدات المستندات التجريبية إن لم تكن موجودة
-    test_docs_path = os.path.join(KNOWLEDGE_BASE_PARENT_DOCS_DIR, "1st_grade", "test_subject")
+    test_docs_path = os.path.join(KNOWLEDGE_BASE_PARENT_DOCS_DIR, "grade_1", "test_subject")
     os.makedirs(test_docs_path, exist_ok=True)
     # أضف ملفًا تجريبيًا صغيراً
     with open(os.path.join(test_docs_path, "sample.txt"), "w", encoding="utf-8") as f:
@@ -490,14 +465,14 @@ if __name__ == "__main__":
         print(f"KB_MANAGER INFO: بدء اختبار كامل مع مشروع: {test_project_id} والموقع: {test_location}")
         try:
             test_manager = KnowledgeBaseManager(
-                grade_folder_name="1st_grade",
+                grade_folder_name="grade_1",
                 subject_folder_name="test_subject",
                 project_id=test_project_id,
                 location=test_location,
-                force_recreate=True # لإعادة البناء في كل مرة أثناء الاختبار
+                force_recreate=True
             )
             
-            if test_manager.db: # إذا تم تهيئة الـ DB بنجاح
+            if test_manager.db:
                 print("\nKB_MANAGER INFO: معلومات المدير بعد التهيئة:")
                 info = test_manager.get_database_info()
                 for key, value in info.items():
@@ -526,4 +501,4 @@ if __name__ == "__main__":
             print(f"KB_MANAGER ERROR: حدث خطأ أثناء الاختبار: {e_test}")
             traceback.print_exc()
     else:
-        print("KB_MANAGER INFO: تخطي الاختبار الكامل: متغيرات البيئة (GCP_PROJECT_ID، GOOGLE_APPLICATION_CREDENTIALS، GCP_LOCATION) غير محددة أو مسار المفتاح غير موجود.")
+        print("KB_MANAGER INFO: تخطي الاختبار الكامل: متغيرات البيئة غير محددة أو مسار المفتاح غير موجود.")
