@@ -1,4 +1,4 @@
-# app.py - التطبيق الرئيسي للمعلم الذكي (النسخة الآمنة)
+# app.py - التطبيق الرئيسي للمعلم الذكي (النسخة المحدثة)
 
 import os
 import sys
@@ -172,13 +172,54 @@ SUBJECT_FOLDERS = {
     'english': 'English'
 }
 
-def load_environment_variables():
-    """تحميل متغيرات البيئة من Streamlit Secrets فقط (آمن)"""
+def load_environment_variables_silently():
+    """تحميل متغيرات البيئة من Streamlit Secrets بصمت (للاستخدام الداخلي)"""
     try:
-        # عرض معلومات debugging للمستخدم
+        # القراءة من Streamlit Secrets فقط
+        if hasattr(st, 'secrets'):
+            # قراءة المتغيرات المطلوبة
+            project_id = st.secrets.get("GCP_PROJECT_ID")
+            location = st.secrets.get("GCP_LOCATION", "us-central1") 
+            credentials_json = st.secrets.get("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+            
+            if project_id and credentials_json:
+                # التحقق من صحة JSON
+                try:
+                    if isinstance(credentials_json, str):
+                        credentials_dict = json.loads(credentials_json)
+                    else:
+                        credentials_dict = credentials_json
+                        
+                    # التحقق من المفاتيح المطلوبة
+                    required_keys = ['type', 'project_id', 'private_key', 'client_email']
+                    missing_keys = [key for key in required_keys if key not in credentials_dict]
+                    
+                    if not missing_keys:
+                        # إنشاء ملف مؤقت للمفاتيح
+                        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                            json.dump(credentials_dict, f)
+                            credentials_path = f.name
+                        
+                        # تعيين متغير البيئة
+                        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+                        
+                        return project_id, location, credentials_path
+                        
+                except json.JSONDecodeError:
+                    return None, None, None
+                except Exception:
+                    return None, None, None
+            
+        return None, None, None
+                    
+    except Exception:
+        return None, None, None
+
+def show_diagnostic_info():
+    """عرض معلومات التشخيص (للمطورين فقط)"""
+    with st.expander("🔧 معلومات التشخيص (للمطورين)"):
         st.write("🔍 **تشخيص النظام:**")
         
-        # القراءة من Streamlit Secrets فقط
         try:
             if hasattr(st, 'secrets'):
                 st.success("✅ وحدة Streamlit Secrets متاحة")
@@ -187,13 +228,11 @@ def load_environment_variables():
                 try:
                     available_keys = list(st.secrets.keys())
                     st.write(f"📋 المفاتيح المتاحة في Secrets: {available_keys}")
-                    print(f"DEBUG: Available secret keys: {available_keys}")
                 except Exception as e:
                     st.warning(f"⚠️ لا يمكن قراءة قائمة المفاتيح: {e}")
                 
-                # قراءة المتغيرات المطلوبة
+                # التحقق من المتغيرات
                 project_id = st.secrets.get("GCP_PROJECT_ID")
-                location = st.secrets.get("GCP_LOCATION", "us-central1") 
                 credentials_json = st.secrets.get("GOOGLE_APPLICATION_CREDENTIALS_JSON")
                 
                 if project_id:
@@ -222,73 +261,23 @@ def load_environment_variables():
                             st.write(f"🏢 Project ID في الـ JSON: {credentials_dict.get('project_id')}")
                             st.write(f"📧 Client Email: {credentials_dict.get('client_email')}")
                             
-                            # إنشاء ملف مؤقت للمفاتيح
-                            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-                                json.dump(credentials_dict, f)
-                                credentials_path = f.name
-                            
-                            # تعيين متغير البيئة
-                            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
-                            st.success(f"✅ تم إنشاء ملف مفاتيح مؤقت: {credentials_path}")
-                            
                     except json.JSONDecodeError as e:
                         st.error(f"❌ خطأ في تحليل JSON: {e}")
-                        credentials_path = None
                     except Exception as e:
                         st.error(f"❌ خطأ في معالجة بيانات الاعتماد: {e}")
-                        credentials_path = None
                 else:
                     st.error("❌ GOOGLE_APPLICATION_CREDENTIALS_JSON غير موجود في Secrets")
-                    credentials_path = None
                     
             else:
                 st.error("❌ وحدة Streamlit Secrets غير متاحة")
-                return None, None, None
                     
         except Exception as e:
             st.error(f"⚠️ فشل قراءة Streamlit secrets: {e}")
-            return None, None, None
-       
-        if not project_id:
-            st.error("❌ لم يتم تعيين GCP_PROJECT_ID في Streamlit Secrets")
-            st.info("💡 يرجى إضافة المتغيرات المطلوبة في Streamlit Cloud Secrets")
-            
-            # عرض مثال على التنسيق المطلوب
-            st.code('''
-GCP_PROJECT_ID = "your-project-id"
-GCP_LOCATION = "us-central1"
-GOOGLE_APPLICATION_CREDENTIALS_JSON = """
-{
-  "type": "service_account",
-  "project_id": "your-project-id",
-  "private_key": "-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n",
-  "client_email": "service-account@your-project.iam.gserviceaccount.com"
-}
-"""
-            ''', language='toml')
-            
-            return None, None, None
-           
-        # التحقق النهائي
-        if not credentials_path:
-            st.warning("⚠️ لم يتم العثور على بيانات الاعتماد")
-        else:
-            if os.path.exists(credentials_path):
-                st.success(f"✅ ملف بيانات الاعتماد موجود: {credentials_path}")
-            else:
-                st.error(f"❌ ملف بيانات الاعتماد غير موجود: {credentials_path}")
-           
-        return project_id, location, credentials_path
-       
-    except Exception as e:
-        st.error(f"❌ خطأ في تحميل متغيرات البيئة: {e}")
-        return None, None, None
 
 @st.cache_resource
 def initialize_gemini_client(project_id: str, location: str):
     """تهيئة عميل Gemini مع التخزين المؤقت"""
     if not GEMINI_CLIENT_AVAILABLE:
-        st.error("❌ وحدة Gemini Client غير متاحة")
         return None
         
     try:
@@ -305,12 +294,47 @@ def initialize_gemini_client(project_id: str, location: str):
         return None
 
 @st.cache_resource
+def initialize_knowledge_base(project_id: str, location: str, grade_key: str, subject_key: str):
+    """تهيئة قاعدة المعرفة مع التخزين المؤقت"""
+    if not KB_MANAGER_AVAILABLE:
+        return None
+        
+    try:
+        subject_folder = SUBJECT_FOLDERS.get(subject_key, subject_key)
+        kb_manager = KnowledgeBaseManager(
+            grade_folder_name=grade_key,
+            subject_folder_name=subject_folder,
+            project_id=project_id,
+            location=location
+        )
+        return kb_manager
+    except Exception as e:
+        print(f"❌ فشل تهيئة قاعدة المعرفة: {e}")
+        return None
+
+@st.cache_resource
 def initialize_prompt_engine():
     """تهيئة محرك البرومبت"""
     if not PROMPT_ENGINE_AVAILABLE:
-        st.error("❌ وحدة محرك البرومبت غير متاحة")
         return None
     return UnifiedPromptEngine()
+
+def retrieve_context(kb_manager: Optional[any], query: str, k_results: int = 3) -> str:
+    """استرجاع السياق من قاعدة المعرفة"""
+    if not kb_manager or not hasattr(kb_manager, 'db') or not kb_manager.db:
+        return ""
+   
+    try:
+        docs = kb_manager.search_documents(query, k_results)
+        if docs:
+            context_parts = []
+            for i, doc in enumerate(docs, 1):
+                context_parts.append(f"[مصدر {i}]: {doc.page_content}")
+            return "\n\n".join(context_parts)
+        return ""
+    except Exception as e:
+        print(f"⚠️ خطأ في استرجاع السياق: {e}")
+        return ""
 
 def initialize_session_state():
     """تهيئة حالة الجلسة للمحادثة المستمرة"""
@@ -381,9 +405,23 @@ def display_sidebar():
                 st.session_state.conversation_started = False
                 st.rerun()
        
-        # عرض معلومات النظام
+        with col2:
+            if st.button("📤 تصدير المحادثة", use_container_width=True):
+                export_conversation()
+       
+        # إحصائيات المحادثة
+        if st.session_state.messages:
+            st.subheader("📊 إحصائيات المحادثة")
+            user_messages = len([msg for msg in st.session_state.messages if msg["role"] == "user"])
+            assistant_messages = len([msg for msg in st.session_state.messages if msg["role"] == "assistant"])
+           
+            st.metric("عدد أسئلتك", user_messages)
+            st.metric("عدد إجابات المعلم", assistant_messages)
+       
         st.divider()
-        st.subheader("ℹ️ معلومات النظام")
+       
+        # عرض معلومات النظام
+        st.subheader("ℹ️ حالة النظام")
         
         # فحص حالة الوحدات
         status_items = [
@@ -397,10 +435,29 @@ def display_sidebar():
             status = "✅" if available else "❌"
             st.write(f"{status} {name}")
        
+        if KB_MANAGER_AVAILABLE and st.button("🔍 فحص متطلبات RAG"):
+            with st.spinner("جاري فحص المتطلبات..."):
+                try:
+                    requirements = check_rag_requirements()
+                    for req, available in requirements.items():
+                        status = "✅" if available else "❌"
+                        st.write(f"{status} {req}")
+                except Exception as e:
+                    st.error(f"خطأ في فحص المتطلبات: {e}")
+       
         return selected_grade, selected_subject
 
-def process_user_question(question: str, gemini_client, prompt_engine, grade_key: str, subject_key: str):
+def process_user_question(question: str, gemini_client, kb_manager, prompt_engine, grade_key: str, subject_key: str):
     """معالجة سؤال المستخدم وإرجاع الإجابة"""
+   
+    # استرجاع السياق من قاعدة المعرفة
+    context = ""
+    search_status = "not_found"
+   
+    if kb_manager and hasattr(kb_manager, 'db') and kb_manager.db:
+        context = retrieve_context(kb_manager, question)
+        if context:
+            search_status = "found"
    
     # إنشاء البرومبت المخصص
     if prompt_engine:
@@ -408,7 +465,7 @@ def process_user_question(question: str, gemini_client, prompt_engine, grade_key
             question=question,
             app_subject_key=subject_key,
             grade_key=grade_key,
-            retrieved_context_str=None
+            retrieved_context_str=context if context else None
         )
     else:
         # برومبت بسيط إذا لم يكن محرك البرومبت متاحاً
@@ -431,7 +488,7 @@ def process_user_question(question: str, gemini_client, prompt_engine, grade_key
         'svg_code': response.get("svg_code"),
         'quality_scores': response.get("quality_scores", {}),
         'quality_issues': response.get("quality_issues", []),
-        'search_status': 'not_found'
+        'search_status': search_status
     }
 
 def add_message(role: str, content: str, **kwargs):
@@ -444,6 +501,36 @@ def add_message(role: str, content: str, **kwargs):
         **kwargs
     }
     st.session_state.messages.append(message)
+
+def export_conversation():
+    """تصدير المحادثة إلى نص"""
+    if not st.session_state.messages:
+        st.warning("لا توجد محادثة للتصدير")
+        return
+   
+    conversation_text = f"محادثة مع المعلم الذكي السعودي\n"
+    conversation_text += f"الصف: {GRADE_SUBJECTS[st.session_state.selected_grade]['name']}\n"
+    conversation_text += f"المادة: {GRADE_SUBJECTS[st.session_state.selected_grade]['subjects'][st.session_state.selected_subject]}\n"
+    conversation_text += f"التاريخ: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+    conversation_text += "="*50 + "\n\n"
+   
+    for msg in st.session_state.messages:
+        if msg["role"] == "user":
+            conversation_text += f"👤 أنت ({msg['timestamp']}):\n{msg['content']}\n\n"
+        elif msg["role"] == "assistant":
+            conversation_text += f"🤖 المعلم الذكي ({msg['timestamp']}):\n"
+            if 'explanation' in msg:
+                conversation_text += f"{msg['explanation']}\n"
+            if 'svg_code' in msg and msg['svg_code']:
+                conversation_text += "[تم إنتاج رسم توضيحي SVG]\n"
+            conversation_text += "\n"
+   
+    st.download_button(
+        label="📄 تحميل المحادثة كنص",
+        data=conversation_text,
+        file_name=f"محادثة_المعلم_الذكي_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+        mime="text/plain"
+    )
 
 def display_message(message: Dict, is_new: bool = False):
     """عرض رسالة واحدة في المحادثة"""
@@ -459,6 +546,13 @@ def display_message(message: Dict, is_new: bool = False):
         # رسالة المساعد
         with st.chat_message("assistant", avatar="🤖"):
             st.write("**المعلم الذكي:**")
+           
+            # عرض حالة البحث إذا كانت موجودة
+            if 'search_status' in message:
+                if message['search_status'] == 'found':
+                    st.success("✅ تم العثور على معلومات ذات صلة من المنهج")
+                elif message['search_status'] == 'not_found':
+                    st.info("ℹ️ لم يتم العثور على معلومات في المنهج، سيتم الاعتماد على المعرفة العامة")
            
             # عرض الشرح النصي
             if 'explanation' in message:
@@ -497,6 +591,20 @@ def display_message(message: Dict, is_new: bool = False):
                         key=f"download_svg_{message.get('id', 'unknown')}"
                     )
            
+            # عرض معلومات الجودة إذا كانت متاحة
+            if 'quality_scores' in message and message['quality_scores']:
+                with st.expander("📊 تقييم جودة الإجابة"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("جودة الشرح", f"{message['quality_scores'].get('explanation', 0)}%")
+                    with col2:
+                        st.metric("جودة الرسم", f"{message['quality_scores'].get('svg', 0)}%")
+                   
+                    if 'quality_issues' in message and message['quality_issues']:
+                        st.write("**ملاحظات للتحسين:**")
+                        for issue in message['quality_issues']:
+                            st.write(f"• {issue}")
+           
             # عرض الوقت
             if 'timestamp' in message:
                 st.caption(f"🕒 {message['timestamp']}")
@@ -510,13 +618,15 @@ def main():
     st.title(APP_TITLE)
     st.markdown(f"**الإصدار:** {VERSION} | **مخصص للمرحلة الابتدائية**")
    
-    # عرض حالة النظام
-    if not GEMINI_CLIENT_AVAILABLE:
-        st.error("❌ وحدة Gemini Client غير متاحة")
-   
-    # تحميل متغيرات البيئة
-    project_id, location, credentials_path = load_environment_variables()
+    # تحميل متغيرات البيئة بصمت
+    project_id, location, credentials_path = load_environment_variables_silently()
+    
+    # عرض تشخيص النظام للمطورين فقط
+    show_diagnostic_info()
+    
     if not project_id:
+        st.error("❌ لم يتم تعيين بيانات Google Cloud في Streamlit Secrets")
+        st.info("💡 يرجى إضافة المتغيرات المطلوبة في إعدادات التطبيق")
         st.stop()
    
     # عرض الشريط الجانبي
@@ -529,6 +639,7 @@ def main():
             st.error("❌ فشل تهيئة عميل Gemini")
             st.stop()
        
+        kb_manager = initialize_knowledge_base(project_id, location, selected_grade, selected_subject)
         prompt_engine = initialize_prompt_engine()
    
     # عرض رسالة الترحيب إذا لم تبدأ المحادثة
@@ -561,9 +672,15 @@ def main():
                 try:
                     # معالجة السؤال
                     response_data = process_user_question(
-                        prompt, gemini_client, prompt_engine,
+                        prompt, gemini_client, kb_manager, prompt_engine,
                         selected_grade, selected_subject
                     )
+                   
+                    # عرض حالة البحث
+                    if response_data['search_status'] == 'found':
+                        st.success("✅ تم العثور على معلومات ذات صلة من المنهج")
+                    elif response_data['search_status'] == 'not_found':
+                        st.info("ℹ️ لم يتم العثور على معلومات في المنهج، سيتم الاعتماد على المعرفة العامة")
                    
                     # عرض الشرح
                     st.write(response_data['explanation'])
@@ -599,6 +716,15 @@ def main():
                                 key=f"download_svg_new"
                             )
                    
+                    # عرض معلومات الجودة
+                    if response_data['quality_scores']:
+                        with st.expander("📊 تقييم جودة الإجابة"):
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.metric("جودة الشرح", f"{response_data['quality_scores'].get('explanation', 0)}%")
+                            with col2:
+                                st.metric("جودة الرسم", f"{response_data['quality_scores'].get('svg', 0)}%")
+                   
                     # إضافة إجابة المساعد للمحادثة
                     add_message("assistant", "", **response_data)
                    
@@ -623,15 +749,30 @@ def main():
         **للعلوم:**
         - "ما هي أجزاء النبات؟"
         - "اشرح لي الحواس الخمس"
+       
+        **للتربية الإسلامية:**
+        - "علمني كيفية الوضوء"
+        - "ما هي أركان الإسلام؟"
+       
+        **للغة الإنجليزية:**
+        - "Teach me the letter A"
+        - "What colors do you know?"
+       
+        ### 💡 ميزات المحادثة المستمرة:
+        - **يتذكر**: جميع أسئلتك وإجاباتي السابقة
+        - **يتطور**: يمكنك البناء على الأسئلة السابقة
+        - **يحفظ**: يمكنك تصدير المحادثة كاملة
+        - **ينظف**: يمكنك بدء محادثة جديدة في أي وقت
         """)
    
     # معلومات إضافية في التذييل
     st.divider()
     st.markdown("""
     <div style='text-align: center; color: gray; font-size: 0.8em;'>
-    💡 المعلم الذكي السعودي - مدعوم بتقنية Gemini AI<br>
+    💡 المعلم الذكي السعودي - مدعوم بتقنية Gemini AI و RAG<br>
     🎯 مخصص للمرحلة الابتدائية - منهج المملكة العربية السعودية<br>
-    🔐 آمن ومحمي - جميع البيانات الحساسة في Streamlit Secrets
+    🔐 آمن ومحمي - جميع البيانات الحساسة في Streamlit Secrets<br>
+    💬 يحفظ تاريخ محادثتك ويتذكر الأسئلة السابقة
     </div>
     """, unsafe_allow_html=True)
 
