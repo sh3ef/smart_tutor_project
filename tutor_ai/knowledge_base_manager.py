@@ -5,31 +5,29 @@ import traceback
 from typing import List, Optional, Dict, Any
 from dotenv import load_dotenv
 
-# تحميل متغيرات البيئة - هذا يضمن تحميلها عند استيراد الوحدة
+# تحميل متغيرات البيئة
 load_dotenv()
 
 # إعدادات المسارات
 KNOWLEDGE_BASE_PARENT_DOCS_DIR = "knowledge_base_docs"
 CHROMA_DB_PARENT_DIRECTORY = "chroma_dbs"
 
-# محاولة استيراد المكتبات المطلوبة بالطرق الحديثة
+# محاولة استيراد المكتبات المطلوبة
 try:
-    # استيرادات LangChain الحديثة
     from langchain_community.document_loaders import (
         UnstructuredMarkdownLoader,
         TextLoader,
         DirectoryLoader,
-        Docx2txtLoader,  # إضافة loader للـ DOCX
+        Docx2txtLoader,
     )
     from langchain.text_splitter import RecursiveCharacterTextSplitter
-    from langchain_core.documents import Document  # التغيير إلى langchain_core
+    from langchain_core.documents import Document
     LANGCHAIN_LOADERS_AVAILABLE = True
 except ImportError as e:
     print(f"KB_MANAGER WARNING: LangChain document loaders not available: {e}")
     LANGCHAIN_LOADERS_AVAILABLE = False
 
 try:
-    # استخدام langchain_chroma للإصدارات الأحدث
     from langchain_chroma import Chroma
     LANGCHAIN_CHROMA_AVAILABLE = True
 except ImportError:
@@ -59,8 +57,14 @@ RAG_REQUIREMENTS_MET = (
     CHROMADB_AVAILABLE
 )
 
-# اسم النموذج المستخدم للـ embeddings - مُحدث للاستقرار
-EMBEDDING_MODEL_NAME = "text-embedding-004"  # نموذج أكثر استقراراً
+# أسماء النماذج المدعومة - بترتيب الأولوية
+EMBEDDING_MODELS = [
+    "text-embedding-004",           # الأحدث والأفضل
+    "textembedding-gecko@003",      # مستقر وموثوق
+    "textembedding-gecko@002",      # نسخة سابقة
+    "textembedding-gecko@001",      # الأقدم
+    "textembedding-gecko"           # الافتراضي
+]
 
 class KnowledgeBaseManager:
     """مدير قاعدة المعرفة مع دعم ChromaDB و Vertex AI Embeddings"""
@@ -70,13 +74,6 @@ class KnowledgeBaseManager:
                  force_recreate: bool = False):
         """
         تهيئة مدير قاعدة المعرفة
-
-        Args:
-            grade_folder_name: اسم مجلد الصف (مثل "grade_1")
-            subject_folder_name: اسم مجلد المادة (مثل "lughati", "Math")
-            project_id: معرف مشروع Google Cloud
-            location: موقع Vertex AI
-            force_recreate: إجبار إعادة إنشاء قاعدة البيانات
         """
         self.grade_folder = grade_folder_name
         self.subject_folder = subject_folder_name
@@ -86,16 +83,14 @@ class KnowledgeBaseManager:
         # إنشاء اسم فريد للـ collection في ChromaDB
         clean_grade_folder = grade_folder_name.replace(" ", "_").lower()
         subject_folder_cleaned = subject_folder_name.replace(" ", "_").lower()
-        # استبدال أسماء المواد العربية بأسماء إنجليزية لأسماء الكوليكشن
         subject_folder_cleaned = subject_folder_cleaned.replace("الدراسات_الاسلامية", "islamic_studies")
         subject_folder_cleaned = subject_folder_cleaned.replace("المهارات_الأسرية", "family_skills")
         self.collection_name = f"{clean_grade_folder}_{subject_folder_cleaned}_coll"
 
         self.docs_path = os.path.join(KNOWLEDGE_BASE_PARENT_DOCS_DIR, self.grade_folder, self.subject_folder)
-        # مسار تخزين ChromaDB
         self.vector_store_path = os.path.join(CHROMA_DB_PARENT_DIRECTORY, self.collection_name)
 
-        # التحقق من توفر المتطلبات الأساسية قبل المتابعة
+        # التحقق من توفر المتطلبات الأساسية
         if not RAG_REQUIREMENTS_MET:
             print(f"KB_MANAGER ERROR: متطلبات RAG غير متوفرة لـ {self.collection_name}.")
             print(f"  LangChain Loaders: {LANGCHAIN_LOADERS_AVAILABLE}")
@@ -104,10 +99,12 @@ class KnowledgeBaseManager:
             print(f"  ChromaDB: {CHROMADB_AVAILABLE}")
             self.embedding_function = None
             self.db = None
+            self.current_model = None
             return
 
-        # تهيئة دالة التضمين (Embedding Function)
+        # تهيئة دالة التضمين
         self.embedding_function: Optional[VertexAIEmbeddings] = None
+        self.current_model = None
         self._init_embeddings()
 
         # حذف قاعدة البيانات القديمة إذا طُلب ذلك
@@ -119,7 +116,7 @@ class KnowledgeBaseManager:
             except OSError as e_del:
                 print(f"KB_MANAGER WARNING: تعذر حذف المجلد {self.vector_store_path}: {e_del}.")
 
-        # تهيئة قاعدة البيانات (Vector Store)
+        # تهيئة قاعدة البيانات
         self.db: Optional[Chroma] = None
         if self.embedding_function:
             self._initialize_vector_store()
@@ -132,9 +129,9 @@ class KnowledgeBaseManager:
         )
 
     def _init_embeddings(self):
-        """تهيئة دوال التضمين من Vertex AI"""
+        """تهيئة دوال التضمين من Vertex AI مع محاولة نماذج متعددة"""
         try:
-            # البحث عن بيانات الاعتماد في متغيرات البيئة
+            # البحث عن بيانات الاعتماد
             cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
             
             # إذا لم تجد في متغير البيئة، تحقق من Streamlit Secrets
@@ -142,7 +139,6 @@ class KnowledgeBaseManager:
                 try:
                     import streamlit as st
                     if hasattr(st, 'secrets'):
-                        # محاولة استخدام الملف المؤقت الذي أنشأه app.py
                         import tempfile
                         import json
                         
@@ -153,7 +149,6 @@ class KnowledgeBaseManager:
                             else:
                                 credentials_dict = credentials_json
                             
-                            # إنشاء ملف مؤقت
                             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
                                 json.dump(credentials_dict, f)
                                 cred_path = f.name
@@ -167,21 +162,45 @@ class KnowledgeBaseManager:
                 self.embedding_function = None
                 return
 
+            # تهيئة Vertex AI
             vertexai.init(project=self.project_id, location=self.location)
-            self.embedding_function = VertexAIEmbeddings(
-                model_name=EMBEDDING_MODEL_NAME,
-                project=self.project_id,
-                location=self.location
-            )
-            print(f"KB_MANAGER INFO: تم تهيئة VertexAIEmbeddings لنموذج '{EMBEDDING_MODEL_NAME}' بنجاح للمشروع: {self.project_id}.")
+            
+            # محاولة النماذج بالترتيب حتى نجد واحد يعمل
+            for model_name in EMBEDDING_MODELS:
+                try:
+                    print(f"KB_MANAGER INFO: محاولة نموذج التضمين '{model_name}' للمشروع: {self.project_id}")
+                    
+                    self.embedding_function = VertexAIEmbeddings(
+                        model_name=model_name,
+                        project=self.project_id,
+                        location=self.location
+                    )
+                    
+                    # اختبار النموذج بسؤال بسيط
+                    test_embedding = self.embedding_function.embed_query("test")
+                    if test_embedding and len(test_embedding) > 0:
+                        self.current_model = model_name
+                        print(f"KB_MANAGER SUCCESS: تم تهيئة VertexAIEmbeddings بنجاح باستخدام نموذج '{model_name}'.")
+                        return
+                        
+                except Exception as model_error:
+                    print(f"KB_MANAGER WARNING: فشل نموذج '{model_name}': {model_error}")
+                    continue
+            
+            # إذا فشلت جميع النماذج
+            print(f"KB_MANAGER ERROR: فشلت جميع نماذج التضمين المتاحة.")
+            self.embedding_function = None
+            self.current_model = None
+            
         except Exception as e:
             print(f"KB_MANAGER ERROR: فشل تهيئة VertexAIEmbeddings لـ {self.collection_name}: {e}")
             print(f"الرجاء التأكد مما يلي:")
             print(f"1. GOOGLE_APPLICATION_CREDENTIALS مضبوط على المسار الصحيح.")
             print(f"2. حساب الخدمة لديه الصلاحيات المناسبة (Vertex AI User أو أدوار أوسع).")
             print(f"3. Vertex AI API (aiplatform.googleapis.com) مُمكن في مشروع GCP '{self.project_id}'.")
-            print(f"4. نموذج التضمين '{EMBEDDING_MODEL_NAME}' متاح في المنطقة '{self.location}'.")
+            print(f"4. نماذج التضمين متاحة في المنطقة '{self.location}'.")
             self.embedding_function = None
+            self.current_model = None
 
     def _initialize_vector_store(self) -> None:
         """تهيئة مخزن المتجهات (ChromaDB)"""
@@ -297,7 +316,7 @@ class KnowledgeBaseManager:
                 print(f"KB_MANAGER ERROR: فشل تهيئة ChromaDB قبل البناء لـ {self.collection_name}.")
                 return False
            
-        print(f"KB_MANAGER INFO: بدء بناء قاعدة المعرفة لـ {self.collection_name}...")
+        print(f"KB_MANAGER INFO: بدء بناء قاعدة المعرفة لـ {self.collection_name} باستخدام نموذج '{self.current_model}'...")
         documents = self._load_documents()
        
         if not documents:
@@ -347,7 +366,7 @@ class KnowledgeBaseManager:
        
         try:
             results = self.db.similarity_search(query, k=k_results)
-            print(f"KB_MANAGER INFO: تم العثور على {len(results)} نتيجة للاستعلام: '{query}'")
+            print(f"KB_MANAGER INFO: تم العثور على {len(results)} نتيجة للاستعلام: '{query}' باستخدام نموذج '{self.current_model}'")
             return results
         except Exception as e:
             print(f"KB_MANAGER ERROR: فشل البحث لـ '{self.collection_name}': {e}")
@@ -365,6 +384,7 @@ class KnowledgeBaseManager:
             "rag_requirements_met": RAG_REQUIREMENTS_MET,
             "embedding_ready": self.embedding_function is not None,
             "db_ready": self.db is not None,
+            "current_model": self.current_model,
             "document_count": 0
         }
        
@@ -398,19 +418,7 @@ def create_all_knowledge_base_managers(grade_subjects_config: Dict[str, str],
                                      project_id: str,
                                      location: str = "us-central1",
                                      force_recreate: bool = False) -> Dict[str, Optional[KnowledgeBaseManager]]:
-    """
-    إنشاء مديري قواعد المعرفة لجميع المواد
-
-    Args:
-        grade_subjects_config: قاموس مفاتيح المواد وأسماء المجلدات
-        target_grade_folder: اسم مجلد الصف
-        project_id: معرف مشروع Google Cloud
-        location: موقع Vertex AI
-        force_recreate: إجبار إعادة إنشاء قواعد البيانات
-
-    Returns:
-        قاموس من مديري قواعد المعرفة (قد يحتوي على None للمديرين الذين فشلوا)
-    """
+    """إنشاء مديري قواعد المعرفة لجميع المواد"""
     managers = {}
     print(f"KB_MANAGER INFO: بدء إنشاء مديري قواعد المعرفة لـ {target_grade_folder}...")
 
@@ -432,10 +440,10 @@ def create_all_knowledge_base_managers(grade_subjects_config: Dict[str, str],
                     managers[manager_key] = manager
                     print(f"KB_MANAGER SUCCESS: تم إنشاء مدير قاعدة المعرفة وبنائها/تحميلها بنجاح: {manager_key}")
                 else:
-                    print(f"KB_MANAGER WARNING: فشل بناء قاعدة المعرفة أو كانت فارغة: {manager_key}. قد لا تعمل أداة الاسترجاع بفعالية.")
+                    print(f"KB_MANAGER WARNING: فشل بناء قاعدة المعرفة أو كانت فارغة: {manager_key}.")
                     managers[manager_key] = manager
             else:
-                print(f"KB_MANAGER ERROR: فشل تهيئة مدير قاعدة المعرفة: {manager_key}. دالة التضمين أو قاعدة البيانات غير جاهزة.")
+                print(f"KB_MANAGER ERROR: فشل تهيئة مدير قاعدة المعرفة: {manager_key}.")
                 managers[manager_key] = None
                
         except Exception as e:
@@ -448,57 +456,3 @@ def create_all_knowledge_base_managers(grade_subjects_config: Dict[str, str],
 if __name__ == "__main__":
     print("KB_MANAGER INFO: اختبار KnowledgeBaseManager...")
     check_rag_requirements()
-   
-    test_project_id = os.getenv("GCP_PROJECT_ID")
-    test_location = os.getenv("GCP_LOCATION", "us-central1")
-    test_credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-
-    # قم بإنشاء مجلدات المستندات التجريبية إن لم تكن موجودة
-    test_docs_path = os.path.join(KNOWLEDGE_BASE_PARENT_DOCS_DIR, "grade_1", "test_subject")
-    os.makedirs(test_docs_path, exist_ok=True)
-    # أضف ملفًا تجريبيًا صغيراً
-    with open(os.path.join(test_docs_path, "sample.txt"), "w", encoding="utf-8") as f:
-        f.write("هذا نص تجريبي للصف الأول الابتدائي، لمادة اختبار.\nيحتوي على معلومات بسيطة ومفيدة.")
-    print(f"KB_MANAGER INFO: تم إنشاء ملف تجريبي في: {test_docs_path}")
-   
-    if test_project_id and test_credentials_path and os.path.exists(test_credentials_path):
-        print(f"KB_MANAGER INFO: بدء اختبار كامل مع مشروع: {test_project_id} والموقع: {test_location}")
-        try:
-            test_manager = KnowledgeBaseManager(
-                grade_folder_name="grade_1",
-                subject_folder_name="test_subject",
-                project_id=test_project_id,
-                location=test_location,
-                force_recreate=True
-            )
-            
-            if test_manager.db:
-                print("\nKB_MANAGER INFO: معلومات المدير بعد التهيئة:")
-                info = test_manager.get_database_info()
-                for key, value in info.items():
-                    print(f"  {key}: {value}")
-                
-                print("\nKB_MANAGER INFO: بناء قاعدة المعرفة...")
-                if test_manager.build_knowledge_base():
-                    print("KB_MANAGER INFO: بناء قاعدة المعرفة نجح.")
-                    info_after_build = test_manager.get_database_info()
-                    print("\nKB_MANAGER INFO: معلومات المدير بعد البناء:")
-                    for key, value in info_after_build.items():
-                        print(f"  {key}: {value}")
-                    
-                    print("\nKB_MANAGER INFO: اختبار البحث في المستندات...")
-                    query_results = test_manager.search_documents("ماذا تعلمت اليوم؟", k_results=1)
-                    if query_results:
-                        print(f"KB_MANAGER INFO: تم العثور على محتوى: {query_results[0].page_content[:100]}...")
-                    else:
-                        print("KB_MANAGER WARNING: لم يتم العثور على نتائج للبحث التجريبي.")
-                else:
-                    print("KB_MANAGER ERROR: فشل بناء قاعدة المعرفة.")
-            else:
-                print("KB_MANAGER ERROR: لم يتم تهيئة مدير قاعدة المعرفة بشكل صحيح.")
-
-        except Exception as e_test:
-            print(f"KB_MANAGER ERROR: حدث خطأ أثناء الاختبار: {e_test}")
-            traceback.print_exc()
-    else:
-        print("KB_MANAGER INFO: تخطي الاختبار الكامل: متغيرات البيئة غير محددة أو مسار المفتاح غير موجود.")
