@@ -60,7 +60,7 @@ RAG_REQUIREMENTS_MET = (
 )
 
 # اسم النموذج المستخدم للـ embeddings - مُحدث للاستقرار
-EMBEDDING_MODEL_NAME = "text-embedding-gecko@001"  # نموذج أكثر استقراراً
+EMBEDDING_MODEL_NAME = "text-embedding-004"  # نموذج أكثر استقراراً
 
 class KnowledgeBaseManager:
     """مدير قاعدة المعرفة مع دعم ChromaDB و Vertex AI Embeddings"""
