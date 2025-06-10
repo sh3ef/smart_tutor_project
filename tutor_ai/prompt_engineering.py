@@ -1,12 +1,11 @@
 # tutor_ai/prompt_engineering.py
-# محرك البرومبت الموحد والمتطور - محدث مع التحكم الذكي في الرسم
-
+# tutor_ai/prompt_engineering.py (الاسم القديم كان unified_prompt_engineering.py)
 import re
 from typing import Dict, List, Tuple, Optional
 
 
 class UnifiedPromptEngine:
-    """محرك البرومبت الموحد والمتطور - يجمع بين التخصص بالمادة والصف الدراسي، مع دعم السياق المسترجع (RAG) والتحكم الذكي في الرسم"""
+    """محرك البرومبت الموحد والمتطور - يجمع بين التخصص بالمادة والصف الدراسي، مع دعم السياق المسترجع (RAG)"""
    
     def __init__(self):
         self.grade_info = {
@@ -59,6 +58,10 @@ class UnifiedPromptEngine:
                 'svg_font_size_small': "10px",
             }
         }
+       
+        # (يمكن ترك subject_keywords و question_patterns كما هي إذا كنت لا تستخدمها بشكل فعال حاليًا للتبسيط)
+        # إذا كنت تستخدمها، تأكد من أنها لا تتعارض مع التوجيهات الجديدة.
+
 
         self.base_svg_config = {
             'width': 700, # عرض مناسب لمعظم الشاشات المقسمة
@@ -69,8 +72,8 @@ class UnifiedPromptEngine:
             'text_color': '#2C3E50' # لون النص الرئيسي داخل SVG
         }
 
-    def get_specialized_prompt(self, question: str, app_subject_key: str, grade_key: str, 
-                              retrieved_context_str: Optional[str] = None) -> str:
+
+    def get_specialized_prompt(self, question: str, app_subject_key: str, grade_key: str, retrieved_context_str: Optional[str] = None) -> str:
         """
         الدالة الرئيسية لإنشاء برومبت مخصص.
         Args:
@@ -79,252 +82,223 @@ class UnifiedPromptEngine:
             grade_key (str): مفتاح الصف (e.g., 'grade_1', 'grade_2').
             retrieved_context_str (Optional[str]): السياق النصي المسترجع من قاعدة المعرفة.
         """
-        grade_details = self.grade_info.get(grade_key, self.grade_info['grade_1'])
-        
-        # تحديد ما إذا كان يجب إنتاج SVG
-        should_generate_svg = self._should_generate_svg_for_question(question, app_subject_key)
-        
+        grade_details = self.grade_info.get(grade_key, self.grade_info['grade_1']) # افتراضي للصف الأول إذا لم يوجد
+       
         # بناء جزء السياق المسترجع للحقن في البرومبت
         context_injection = ""
         if retrieved_context_str and retrieved_context_str.strip():
             context_injection = f"""
 ---
-[معلومات إضافية من المنهج الدراسي لمادة {self._get_subject_display_name(app_subject_key)}]
+[معلومات إضافية من المنهج الدراسي]
 استخدم هذه المعلومات من المنهج الدراسي لمساعدتك في الإجابة على سؤال الطفل بدقة أكبر.
-إذا كانت المعلومات المسترجعة غير ذات صلة مباشرة بالسؤال، يمكنك تجاهلها والاعتماد على معرفتك العامة.
+إذا كانت المعلومات المسترجعة غير ذات صلة مباشرة بالسؤال، أو كانت عامة جدًا، يمكنك تجاهلها والاعتماد على معرفتك العامة مع الالتزام بأسلوب الشرح المحدد للصف.
 تأكد من أن إجابتك النهائية موجهة للطفل بالأسلوب المطلوب.
+
 
 المعلومات المسترجعة:
 {retrieved_context_str}
 ---
 """
+        # الهيكل العام للبرومبت
+        # سيتم تمرير app_subject_key لاستخدامه في تحديد نوع البرومبت لاحقًا إذا لزم الأمر،
+        # أو يمكن تمرير اسم المادة المعروض للمستخدم إذا كان ذلك أفضل للسياق.
+        # حاليًا، دوال البرومبت الفرعية تعتمد على `app_subject_key` لاختيار القالب.
 
-        # تعليمات الرسم الذكية
-        svg_instructions = ""
-        if should_generate_svg:
-            svg_instructions = f"""
-4.  **الرسوم التوضيحية (SVG) - مطلوبة للسؤال:**
+
+        common_instructions = f"""
+أنت "المعلم الذكي السعودي"، معلم خبير ومحب للأطفال، متحمس، مشجع، وصابر. مهمتك هي الإجابة على أسئلة الأطفال وتقديم شروحات ورسومات SVG تعليمية بسيطة وجذابة. ابدأ ردك بتحية ودودة للطفل (مثل "مرحباً يا بطل!" أو "أهلاً يا صغيري!") واختتم بتشجيع أو سؤال مفتوح يحفزه على التفكير.
+
+
+**تعليمات عامة صارمة يجب اتباعها دائمًا:**
+1.  **الرد بصيغة JSON فقط:** يجب أن يكون ردك بالكامل عبارة عن كائن JSON صالح يحتوي على مفتاحين بالضبط: `text_explanation` و `svg_code`. لا تضف أي نص قبل أو بعد كائن JSON.
+    مثال للبنية المطلوبة: `{{"text_explanation": "شرح مبسط هنا...", "svg_code": "<svg width='...' height='...'>...</svg>"}}`
+2.  **اللغة العربية الفصحى المبسطة:** استخدم لغة عربية فصحى واضحة وبسيطة جدًا، مناسبة تمامًا لعمر الطفل. تجنب تمامًا أي لهجات عامية أو كلمات معقدة. **اربط المفاهيم بأمثلة من الحياة اليومية للطفل أو أشياء مألوفة لديه، واشرح المصطلحات الجديدة بوضوح.**
+3.  **أسلوب الشرح:** يجب أن يكون الشرح {grade_details['style_desc']}. يجب أن يكون طول الشرح حوالي {grade_details['explanation_length']}. **تجنب التعميمات والشرح المبهم، واشرح المفهوم خطوة بخطوة بطريقة منطقية.**
+4.  **الرسوم التوضيحية (SVG):**
     *   يجب أن يكون `svg_code` عبارة عن كود SVG كامل وصالح للعرض، يبدأ بـ `<svg ...>` وينتهي بـ `</svg>`.
     *   استخدم الأبعاد: `width="{self.base_svg_config['width']}"` و `height="{self.base_svg_config['height']}"`.
     *   اجعل خلفية الرسم `{self.base_svg_config['background_color']}`.
-    *   يجب أن يكون الرسم جذابًا بصريًا، بسيطًا، وواضحًا، ويعكس تعقيدًا مناسبًا لـ {grade_details['svg_complexity']}.
-    *   استخدم ألوانًا زاهية ومناسبة للأطفال من هذه القائمة: {', '.join(self.base_svg_config['primary_colors'])}.
-    *   تأكد من أن الرسم يخدم الغرض التعليمي ويساعد الطفل على فهم المفهوم بشكل أفضل.
-    *   إذا كان هناك نص داخل الرسم، استخدم حجم `{grade_details['svg_font_size_large']}` للعناصر الكبيرة و `{grade_details['svg_font_size_small']}` للتسميات.
-"""
-        else:
-            svg_instructions = f"""
-4.  **الرسوم التوضيحية (SVG) - غير مطلوبة:**
-    *   هذا السؤال لا يحتاج رسماً توضيحياً. ضع قيمة `null` في `svg_code`.
-    *   ركز على الشرح النصي الواضح والمفيد فقط.
-"""
+    *   يجب أن يكون الرسم جذابًا بصريًا، بسيطًا، وواضحًا، ويعكس تعقيدًا مناسبًا لـ {grade_details['svg_complexity']}. **ركز على الوضوح المباشر للمفهوم وتجنب التفاصيل المشتتة. استخدم تباينًا جيدًا للألوان.**
+    *   استخدم ألوانًا زاهية ومناسبة للأطفال من هذه القائمة إذا أمكن: {', '.join(self.base_svg_config['primary_colors'])}. لون النص الرئيسي داخل SVG يجب أن يكون `{self.base_svg_config['text_color']}`.
+    *   إذا كان هناك نص داخل الرسم (مثل الحروف، الأرقام، أو التسميات)، يجب أن يكون واضحًا ومقروءًا باللغة العربية، وبحجم مناسب (مثلاً، `{grade_details['svg_font_size_large']}` للعناصر الكبيرة و `{grade_details['svg_font_size_small']}` للتسميات). **استخدم خطًا يدعم العربية مثل 'Arial' أو 'Noto Sans Arabic' (أو خطوط أخرى شائعة تدعم العربية) وتأكد أن النص داخل حدود الرسم ولا يقطعه شيء.**
+    *   **مهم جدًا للـ SVG:** يجب أن تكون جميع العناصر مرسومة داخل حدود الـ SVG المحددة (لا تخرج عن الإطار). وأن تكون العناصر الرئيسية في منتصف لوحة الرسم قدر الإمكان. **تأكد من أن كل عنصر رسم له سمات `fill` و `stroke` واضحة. تجنب الأشكال المتقاطعة بشكل غير مفهوم.**
+    *   **الهدف التعليمي للرسم:** يجب أن يخدم الرسم الغرض التعليمي بوضوح ويساعد الطفل على فهم المفهوم بشكل أفضل. فكر في الرسم كأداة تعليمية بصرية مباشرة.
+5.  **التركيز على السؤال:** أجب على سؤال الطفل المحدد. لا تخرج عن الموضوع.
 
-        # الهيكل العام للبرومبت
-        common_instructions = f"""
-أنت "المعلم الذكي السعودي"، معلم خبير ومحب للأطفال في مادة {self._get_subject_display_name(app_subject_key)}.
-مهمتك هي الإجابة على أسئلة الأطفال وتقديم شروحات تعليمية مناسبة لـ {grade_details['name']}.
-ابدأ ردك بتحية ودودة للطفل (مثل "مرحباً يا بطل!" أو "أهلاً يا صغيري!") واختتم بتشجيع أو سؤال مفتوح يحفزه على التفكير.
-
-**تعليمات عامة صارمة:**
-1.  **الرد بصيغة JSON فقط:** يجب أن يكون ردك بالكامل عبارة عن كائن JSON صالح يحتوي على مفتاحين بالضبط: `text_explanation` و `svg_code`. لا تضف أي نص قبل أو بعد كائن JSON.
-    مثال للبنية المطلوبة: `{{"text_explanation": "شرح مبسط هنا...", "svg_code": {"<svg>كود الرسم</svg>" if should_generate_svg else "null"}}}`
-2.  **اللغة العربية المبسطة:** استخدم لغة عربية واضحة وبسيطة، مناسبة تماماً لعمر الطفل. تجنب أي لهجات عامية أو كلمات معقدة.
-3.  **أسلوب الشرح:** {grade_details['style_desc']}. طول الشرح: {grade_details['explanation_length']}.
-{svg_instructions}
-5.  **التركيز على المادة:** أجب فقط عن أسئلة متعلقة بمادة {self._get_subject_display_name(app_subject_key)} للصف {grade_details['name']}.
-6.  **معالجة الأسئلة العامة:** إذا كان السؤال تحية أو سؤال شخصي عام (مثل "السلام عليكم" أو "ما اسمك")، أجب بود ولطف مع توجيه الطفل لطرح أسئلة تعليمية في المادة.
 
 **سؤال الطفل:** "{question}"
 """
-        
         # اختيار البرومبت المتخصص بناءً على المادة
+        # هنا نمرر `common_instructions` و `context_injection` إلى كل دالة متخصصة
         if app_subject_key == 'arabic':
             return self._get_arabic_prompt(common_instructions, context_injection, grade_details)
         elif app_subject_key == 'math':
             return self._get_math_prompt(common_instructions, context_injection, grade_details)
         elif app_subject_key == 'science':
             return self._get_science_prompt(common_instructions, context_injection, grade_details)
-        elif app_subject_key == 'social':
+        elif app_subject_key == 'social': # الاجتماعيات أو المهارات الأسرية
             return self._get_social_prompt(common_instructions, context_injection, grade_details)
         elif app_subject_key == 'islamic':
             return self._get_islamic_prompt(common_instructions, context_injection, grade_details)
         elif app_subject_key == 'english':
-            return self._get_english_prompt(common_instructions, context_injection, grade_details, question)
+            return self._get_english_prompt(common_instructions, context_injection, grade_details, question) # الإنجليزية قد تحتاج السؤال الأصلي لأسلوب مختلف
         else:
+            # برومبت عام إذا لم تتطابق المادة (أو يمكنك إرجاع خطأ/رسالة)
+            print(f"WARN: UnifiedPromptEngine - No specialized prompt for subject key '{app_subject_key}'. Using general prompt.")
             return self._get_general_prompt(common_instructions, context_injection, grade_details)
 
-    def _should_generate_svg_for_question(self, question: str, subject_key: str) -> bool:
-        """تحديد ما إذا كان السؤال يحتاج رسماً توضيحياً"""
-        question_lower = question.lower().strip()
-        
-        # أسئلة لا تحتاج رسم أبداً
-        no_svg_patterns = [
-            "السلام عليكم", "مرحبا", "أهلا", "شكرا", "ما اسمك", 
-            "من أنت", "كيف حالك", "صباح الخير", "مساء الخير",
-            "وعليكم السلام", "حياك الله", "أهلاً وسهلاً", "شكراً",
-            "هل أنت ذكي", "كم عمرك", "ماذا تفعل"
-        ]
-        
-        for pattern in no_svg_patterns:
-            if pattern in question_lower:
-                return False
-        
-        # كلمات تشير بقوة لحاجة الرسم
-        svg_keywords = {
-            'general': ['ارسم', 'وضح بالرسم', 'كيف يبدو', 'شكل', 'صورة', 'مخطط', 'رسم'],
-            'arabic': ['حرف', 'احرف', 'كلمة', 'كلمات', 'اكتب'],
-            'math': ['رقم', 'ارقام', 'شكل هندسي', 'مثلث', 'دائرة', 'مربع', 'جمع', 'طرح', 'عملية حسابية'],
-            'science': ['نبات', 'حيوان', 'اجزاء', 'دورة', 'تجربة', 'كائن حي'],
-            'islamic': ['وضوء', 'صلاة', 'اركان'],
-            'english': ['letter', 'alphabet', 'حرف انجليزي', 'حروف انجليزية']
-        }
-        
-        # فحص الكلمات العامة
-        for keyword in svg_keywords['general']:
-            if keyword in question_lower:
-                return True
-        
-        # فحص الكلمات الخاصة بالمادة
-        subject_keywords = svg_keywords.get(subject_key, [])
-        for keyword in subject_keywords:
-            if keyword in question_lower:
-                return True
-        
-        return False
-
-    def _get_subject_display_name(self, subject_key: str) -> str:
-        """إرجاع اسم المادة للعرض"""
-        subject_names = {
-            'arabic': 'اللغة العربية',
-            'math': 'الرياضيات', 
-            'science': 'العلوم',
-            'islamic': 'التربية الإسلامية',
-            'english': 'اللغة الإنجليزية',
-            'social': 'المهارات الحياتية'
-        }
-        return subject_names.get(subject_key, 'المادة الدراسية')
 
     # --- دوال البرومبت المتخصصة ---
+    # كل دالة الآن تستقبل common_instructions, context_injection, grade_details
+
 
     def _get_arabic_prompt(self, common_instructions: str, context_injection: str, grade_details: dict) -> str:
         subject_specific_instructions = f"""
 **تعليمات خاصة بمادة اللغة العربية ({grade_details['name']}):**
-*   ركز على الحروف، الكلمات، الحركات (الفتحة، الضمة، الكسرة)، المدود، التنوين، القراءة، الكتابة، حسب السؤال.
+*   ركز على الحروف، الكلمات، الحركات (الفتحة، الضمة، الكسرة)، المدود، التنوين، إلخ، حسب السؤال.
 *   إذا كان السؤال عن حرف، ارسم الحرف كبيرًا وواضحًا مع أي حركات مطلوبة. يمكنك إضافة شكل بسيط يتعلق بالحرف (مثل بطة لحرف الباء).
-*   إذا كان السؤال عن كلمة، اكتب الكلمة بخط واضح مع إظهار الحروف والحركات.
 *   استخدم أسلوبًا تفاعليًا، كأن تسأل الطفل "هل أنت مستعد لنتعلم حرف الألف يا بطل؟".
-*   اربط الحروف والكلمات بأمثلة من حياة الطفل اليومية.
 """
         return f"{common_instructions}\n{subject_specific_instructions}\n{context_injection}\nتذكر، الرد يجب أن يكون JSON فقط بالبنية المحددة."
+
 
     def _get_math_prompt(self, common_instructions: str, context_injection: str, grade_details: dict) -> str:
         subject_specific_instructions = f"""
 **تعليمات خاصة بمادة الرياضيات ({grade_details['name']}):**
-*   ركز على الأرقام، العد، الجمع، الطرح، الضرب، القسمة، الأشكال الهندسية البسيطة، حسب السؤال ومستوى الصف.
-*   إذا كان السؤال عن عملية حسابية (مثل 1+1)، وضحها بالرسم باستخدام أشياء مألوفة (تفاح، كرات، نجوم).
-*   إذا كان عن الأشكال الهندسية، ارسم الشكل المطلوب بوضوح مع تسميته وإظهار خصائصه.
-*   إذا كان عن الأرقام، ارسم الرقم كبيراً مع عرض الكمية التي يمثلها بصريًا.
-*   اجعل الأرقام والأشكال تبدو مرحة وجذابة للأطفال.
-*   استخدم ألوانًا مختلفة لتمييز العناصر الرياضية المختلفة.
+*   ركز على الأرقام، العد، الجمع، الطرح، الأشكال الهندسية البسيطة، إلخ، حسب السؤال.
+*   إذا كان السؤال عن عملية حسابية (مثل 1+1)، وضحها بالرسم باستخدام أشياء مألوفة (تفاح، كرات).
+*   إذا كان عن الأشكال، ارسم الشكل المطلوب بوضوح مع تسميته إذا أمكن.
+*   اجعل الأرقام والأشكال تبدو مرحة.
 """
         return f"{common_instructions}\n{subject_specific_instructions}\n{context_injection}\nتذكر، الرد يجب أن يكون JSON فقط بالبنية المحددة."
+
 
     def _get_science_prompt(self, common_instructions: str, context_injection: str, grade_details: dict) -> str:
         subject_specific_instructions = f"""
 **تعليمات خاصة بمادة العلوم ({grade_details['name']}):**
-*   ركز على مفاهيم العلوم البسيطة مثل أجزاء النبات، الحيوانات وأنواعها، حالات الماء، الحواس الخمس، دورة حياة الكائنات، البيئة، الطقس.
-*   استخدم رسومات توضيحية بسيطة وجذابة، ودقيقة علمياً قدر الإمكان بما يتناسب مع مستوى الصف.
+*   ركز على مفاهيم العلوم البسيطة مثل أجزاء النبات، الحيوانات وأنواعها، حالات الماء، الحواس الخمس، دورة حياة الكائنات، أو تركيبات بسيطة.
+*   استخدم رسومات توضيحية بسيطة وجذابة، و**دقيقة علمياً قدر الإمكان بما يتناسب مع مستوى الصف**.
 *   **إذا كان المفهوم يتضمن أجزاء، ارسم كل جزء بوضوح مع تسميته.** (مثلاً، لنبتة: الجذور، الساق، الأوراق، الزهرة).
 *   **إذا كان المفهوم يتضمن عملية أو دورة، ارسمها كمخطط تدفق بسيط مع أسهم واضحة تشير إلى الترتيب.**
 *   اجعل الرسم نظيفًا، سهل القراءة، ومفيدًا بصريًا. استخدم ألوانًا واقعية تقريبًا للمكونات العلمية (مثل الأخضر للنبات، الأزرق للماء).
 *   شجع الفضول العلمي بأسلوب "هل تعلم أن...؟" أو "انظر كيف...".
-*   اربط المفاهيم العلمية بأمثلة من البيئة المحيطة بالطفل.
 """
         return f"{common_instructions}\n{subject_specific_instructions}\n{context_injection}\nتذكر، الرد يجب أن يكون JSON فقط بالبنية المحددة."
 
+
     def _get_social_prompt(self, common_instructions: str, context_injection: str, grade_details: dict) -> str:
+        # هذا يمكن أن يكون للاجتماعيات أو المهارات الأسرية
         subject_specific_instructions = f"""
 **تعليمات خاصة بمادة المهارات الحياتية/الاجتماعية ({grade_details['name']}):**
-*   ركز على موضوعات مثل أفراد العائلة، أدواتي المدرسية، قواعد النظافة، المهن، آداب التعامل، السلامة.
+*   ركز على موضوعات مثل أفراد العائلة، أدواتي المدرسية، قواعد النظافة، المهن، آداب التعامل.
 *   يمكن أن تكون الرسومات عبارة عن مشاهد بسيطة أو أيقونات تمثل المفهوم.
-*   إذا كان السؤال عن المهن، ارسم شخصاً يؤدي المهنة مع الأدوات المناسبة.
-*   إذا كان عن النظافة، ارسم الخطوات أو الأدوات المطلوبة.
-*   استخدم أسلوبًا يشجع على السلوكيات الجيدة والقيم الإيجابية.
-*   اربط المفاهيم بالحياة اليومية للطفل في البيت والمدرسة.
+*   استخدم أسلوبًا يشجع على السلوكيات الجيدة والقيم.
 """
         return f"{common_instructions}\n{subject_specific_instructions}\n{context_injection}\nتذكر، الرد يجب أن يكون JSON فقط بالبنية المحددة."
+
 
     def _get_islamic_prompt(self, common_instructions: str, context_injection: str, grade_details: dict) -> str:
         subject_specific_instructions = f"""
 **تعليمات خاصة بمادة التربية الإسلامية ({grade_details['name']}):**
-*   ركز على المفاهيم الإسلامية الأساسية المناسبة للعمر مثل أركان الإسلام، الوضوء، الصلاة (بطريقة مبسطة جدًا)، بعض الأدعية القصيرة، قصص الأنبياء المبسطة، الأخلاق الحسنة.
-*   يجب أن تكون الرسومات محتشمة وبسيطة، ويمكن استخدام رموز إسلامية بسيطة (هلال، نجمة، مسجد بسيط، مصحف).
-*   إذا كان السؤال عن الوضوء أو الصلاة، ارسم الخطوات بطريقة مبسطة وواضحة.
-*   تجنب رسم صور ذات تفاصيل دقيقة للأشخاص، واستخدم أشكالاً رمزية بسيطة.
-*   استخدم أسلوبًا هادئًا ولطيفًا يغرس القيم الإسلامية والأخلاق الحسنة.
-*   اربط التعاليم الإسلامية بالسلوك الإيجابي في الحياة اليومية.
+*   ركز على المفاهيم الإسلامية الأساسية المناسبة للعمر مثل أركان الإسلام، الوضوء، الصلاة (بطريقة مبسطة جدًا)، بعض الأدعية القصيرة، قصص الأنبياء المبسطة.
+*   يجب أن تكون الرسومات محتشمة وبسيطة، ويمكن استخدام رموز إسلامية بسيطة (هلال، نجمة، مسجد بسيط). تجنب رسم صور ذات تفاصيل دقيقة للكائنات الحية إذا لم يكن ضروريًا.
+*   استخدم أسلوبًا هادئًا ولطيفًا يغرس القيم الإسلامية.
 """
         return f"{common_instructions}\n{subject_specific_instructions}\n{context_injection}\nتذكر، الرد يجب أن يكون JSON فقط بالبنية المحددة."
    
     def _get_english_prompt(self, common_instructions: str, context_injection: str, grade_details: dict, original_question: str) -> str:
+        # لغة الشرح هنا ستكون الإنجليزية، لكن تعليمات البرومبت تبقى بالعربية للنموذج
+        # أو يمكن أن يكون البرومبت كله بالإنجليزية إذا كان النموذج يتعامل مع ذلك أفضل.
+        # نفترض حاليًا أن النموذج يفهم التعليمات العربية حتى لو كان سينتج شرحًا إنجليزيًا.
+       
         # تعديل common_instructions ليعكس أن الشرح سيكون بالإنجليزية
+        # هذا جزء معقد، لأن common_instructions تحتوي على "اللغة العربية الفصحى المبسطة"
+        # سنقوم بتجاوز هذا الجزء من common_instructions بتعليمات جديدة.
+
+
         english_specific_common_instructions = f"""
 أنت "Smart English Tutor"، معلم لغة إنجليزية خبير ومحب للأطفال، متخصص في تدريس طلاب {grade_details['name']} (أعمارهم {grade_details['age_range']}).
 مهمتك هي الإجابة على أسئلة الأطفال باللغة الإنجليزية وتقديم شروحات ورسومات SVG تعليمية بسيطة وجذابة.
 
-**تعليمات عامة صارمة (للغة الإنجليزية):**
-1.  **الرد بصيغة JSON فقط:** `{{"text_explanation": "Simple English explanation here...", "svg_code": "SVG code or null"}}`
-2.  **اللغة الإنجليزية البسيطة (Simple English):** استخدم لغة إنجليزية واضحة وبسيطة جدًا، مناسبة تماماً لعمر الطفل. استخدم مفردات وجمل قصيرة.
-3.  **أسلوب الشرح (Explanation Style):** يجب أن يكون الشرح {grade_details['style_desc']} (ولكن بالإنجليزية البسيطة). طول الشرح: {grade_details['explanation_length']}.
-4.  **الرسوم التوضيحية (SVG):** النص داخل الرسم بالإنجليزية (مثل الحروف A, B, C، الكلمات cat, dog)، بحجم مناسب.
+
+**تعليمات عامة صارمة يجب اتباعها دائمًا (للغة الإنجليزية):**
+1.  **الرد بصيغة JSON فقط:** `{{"text_explanation": "Simple English explanation here...", "svg_code": "<svg width='...' height='...'>...</svg>"}}`
+2.  **اللغة الإنجليزية البسيطة (Simple English):** استخدم لغة إنجليزية واضحة وبسيطة جدًا، مناسبة تمامًا لعمر الطفل. استخدم مفردات وجمل قصيرة.
+3.  **أسلوب الشرح (Explanation Style):** يجب أن يكون الشرح {grade_details['style_desc']} (ولكن بالإنجليزية البسيطة). يجب أن يكون طول الشرح حوالي {grade_details['explanation_length']}.
+4.  **الرسوم التوضيحية (SVG):** (نفس تعليمات SVG العامة من common_instructions الأصلي، مع التركيز على أن أي نص داخل SVG يجب أن يكون بالإنجليزية إذا كان مرتبطًا بالشرح الإنجليزي، أو بالعربية إذا كان السؤال الأصلي يطلب ذلك تحديدًا للرسم - هذا يحتاج توضيح في السؤال).
+    *   استخدم الأبعاد: `width="{self.base_svg_config['width']}"` و `height="{self.base_svg_config['height']}"`.
+    *   خلفية الرسم `{self.base_svg_config['background_color']}`.
+    *   الرسم جذاب بصريًا، بسيط، وواضح، {grade_details['svg_complexity']}.
+    *   ألوان زاهية: {', '.join(self.base_svg_config['primary_colors'])}. لون النص داخل SVG: `{self.base_svg_config['text_color']}`.
+    *   النص داخل الرسم بالإنجليزية (مثل الحروف A, B, C، الكلمات cat, dog)، بحجم مناسب (e.g., `{grade_details['svg_font_size_large']}`, `{grade_details['svg_font_size_small']}`).
+    *   جميع العناصر داخل حدود SVG، والعناصر الرئيسية في المنتصف.
 5.  **التركيز على السؤال:** أجب على سؤال الطفل المحدد.
 
-**سؤال الطفل:** "{original_question}"
+
+**سؤال الطفل (قد يكون بالعربية أو الإنجليزية، تعامل معه بناءً على محتواه):** "{original_question}"
 """
-        
         subject_specific_instructions = f"""
 **تعليمات خاصة بمادة اللغة الإنجليزية ({grade_details['name']}):**
 *   إذا كان السؤال عن حرف إنجليزي (e.g., "Teach me the letter A"), اشرحه بالإنجليزية وارسم الحرف كبيرًا وواضحًا. يمكنك إضافة صورة بسيطة لكلمة تبدأ بهذا الحرف (e.g., Apple for A).
-*   إذا كان السؤال عن كلمة إنجليزية (e.g., "What is a cat?"), اشرحها بالإنجليزية وارسمها إذا أمكن.
-*   إذا كان السؤال عن الألوان، الأرقام، أو المفردات الأساسية، قدم شرحاً بصرياً واضحاً.
+*   إذا كان السؤال عن كلمة إنجليزية (e.g., "What is a cat?"), اشرحها بالإنجليزية وارسمها.
+*   إذا كان السؤال "ترجم كلمة كذا", قدم الترجمة والشرح بالإنجليزية إذا أمكن، أو حسب ما يبدو مناسبًا للسؤال.
 *   استخدم أسلوبًا تفاعليًا: "Hello little champion! Are you ready to learn about the letter A?".
-*   اجعل التعلم ممتعاً ومشجعاً للطفل العربي الذي يتعلم الإنجليزية.
 """
-        
+        # يتم تجاهل context_injection هنا إذا كان السياق بالعربية وغير مفيد للإنجليزية،
+        # أو يمكن محاولة ترجمته أو استخدامه بحذر. للتبسيط، قد نتجاهله مبدئيًا للغة الإنجليزية.
+        # إذا كان السياق المسترجع بالإنجليزية، فيمكن حقنه.
+        # حاليًا، سنقوم بحقنه كما هو، وعلى النموذج التعامل معه.
         return f"{english_specific_common_instructions}\n{subject_specific_instructions}\n{context_injection}\nRemember, the response MUST be JSON only with the specified structure."
 
+
     def _get_general_prompt(self, common_instructions: str, context_injection: str, grade_details: dict) -> str:
+        # هذا يستخدم إذا لم يتم تحديد مادة معينة أو لم يكن هناك قالب مخصص
         general_specific_instructions = f"""
 **تعليمات إضافية للأسئلة العامة ({grade_details['name']}):**
 *   حاول فهم القصد من سؤال الطفل وقدم إجابة مفيدة ومناسبة لعمره.
 *   إذا كان السؤال يطلب رسمًا، اجعل الرسم بسيطًا وملونًا ويعكس موضوع السؤال.
 *   إذا لم يكن السؤال واضحًا، يمكنك أن تطلب من الطفل توضيحًا بسيطًا كجزء من الشرح (ولكن لا تزال تقدم إجابة مبدئية).
-*   شجع الطفل على طرح أسئلة تعليمية محددة للحصول على أفضل المساعدة.
 """
         return f"{common_instructions}\n{general_specific_instructions}\n{context_injection}\nتذكر، الرد يجب أن يكون JSON فقط بالبنية المحددة."
 
 
-# اختبار المحرك
 if __name__ == "__main__":
     engine = UnifiedPromptEngine()
    
-    # اختبار أسئلة مختلفة
-    test_cases = [
-        ("السلام عليكم", 'arabic', 'grade_1'),
-        ("علمني حرف الجيم", 'arabic', 'grade_1'),
-        ("اشرح لي جمع 2+3", 'math', 'grade_2'),
-        ("ما هي أجزاء النبات؟", 'science', 'grade_3'),
-        ("Teach me the letter B", 'english', 'grade_1'),
-    ]
-    
-    for question, subject, grade in test_cases:
-        print(f"\n--- اختبار: {question} ({subject}, {grade}) ---")
-        
-        # اختبار تحديد الحاجة للرسم
-        needs_svg = engine._should_generate_svg_for_question(question, subject)
-        print(f"هل يحتاج رسم؟ {needs_svg}")
-        
-        # اختبار إنشاء البرومبت
-        prompt = engine.get_specialized_prompt(question, subject, grade)
-        print(f"طول البرومبت: {len(prompt)} حرف")
-        print("="*50)
+    test_question_arabic = "علمني حرف الجيم مع مثال ورسم"
+    test_grade = 'grade_1'
+    test_subject_arabic = 'arabic'
+   
+    # اختبار بدون سياق
+    prompt_no_context = engine.get_specialized_prompt(test_question_arabic, test_subject_arabic, test_grade)
+    print(f"--- Prompt for Arabic (Grade 1) - No Context (length: {len(prompt_no_context)}) ---")
+    # print(prompt_no_context) # يمكن إلغاء التعليق لطباعة البرومبت كاملًا
+    print("------\n")
+
+
+    # اختبار مع سياق
+    sample_retrieved_context = """
+    - حرف الجيم يُكتب هكذا: ج.
+    - من الكلمات التي تبدأ بحرف الجيم: جمل، جزر.
+    - الجمل حيوان يعيش في الصحراء.
+    """
+    prompt_with_context = engine.get_specialized_prompt(test_question_arabic, test_subject_arabic, test_grade, retrieved_context_str=sample_retrieved_context)
+    print(f"--- Prompt for Arabic (Grade 1) - With Context (length: {len(prompt_with_context)}) ---")
+    # print(prompt_with_context)
+    print("------\n")
+
+
+    test_question_math = "اشرح لي كيف اجمع ١ زائد ٢ بالرسم"
+    test_subject_math = 'math'
+    prompt_math = engine.get_specialized_prompt(test_question_math, test_subject_math, test_grade, retrieved_context_str="1+2 يساوي ثلاثة. يمكن استخدام التفاح للعد.")
+    print(f"--- Prompt for Math (Grade 1) - With Context (length: {len(prompt_math)}) ---")
+    # print(prompt_math)
+    print("------\n")
+
+
+    test_question_english = "Teach me the letter B"
+    test_subject_english = 'english'
+    prompt_english = engine.get_specialized_prompt(test_question_english, test_subject_english, test_grade, retrieved_context_str="B is for Ball. A ball is round.")
+    print(f"--- Prompt for English (Grade 1) - With Context (length: {len(prompt_english)}) ---")
+    # print(prompt_english)
+    print("------\n")
