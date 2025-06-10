@@ -2,6 +2,7 @@
 import os
 import shutil
 import traceback
+import time
 from typing import List, Optional, Dict, Any
 from dotenv import load_dotenv
 
@@ -57,16 +58,16 @@ RAG_REQUIREMENTS_MET = (
     CHROMADB_AVAILABLE
 )
 
-# النماذج المدعومة فعلاً (مرتبة حسب الأولوية)
+# النماذج المدعومة فعلاً (مرتبة حسب الأولوية) - محدث
 EMBEDDING_MODELS = [
-    "gemini-embedding-001",         # الأحدث والأفضل - 3072 dimensions
-    "text-embedding-005",           # نموذج حديث - 768 dimensions  
-    "text-embedding-004",           # نموذج مستقر - 768 dimensions
-    "textembedding-gecko@latest",   # محاولة أخيرة للنماذج القديمة
+    "textembedding-gecko@latest",   # النموذج الوحيد الذي يعمل حالياً
+    "textembedding-gecko@003",      # إصدار أقدم مستقر
+    "textembedding-gecko@002",      # إصدار احتياطي
+    "textembedding-gecko@001",      # إصدار أقدم
 ]
 
 class KnowledgeBaseManager:
-    """مدير قاعدة المعرفة مع دعم ChromaDB و Vertex AI Embeddings"""
+    """مدير قاعدة المعرفة مع دعم ChromaDB و Vertex AI Embeddings - محدث مع إصلاح الأخطاء"""
 
     def __init__(self, grade_folder_name: str, subject_folder_name: str,
                  project_id: str, location: str = "us-central1",
@@ -121,14 +122,14 @@ class KnowledgeBaseManager:
             self._initialize_vector_store()
 
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
+            chunk_size=800,  # تقليل حجم القطع
+            chunk_overlap=150,  # تقليل التداخل
             length_function=len,
             is_separator_regex=False,
         )
 
     def _init_embeddings(self):
-        """تهيئة دوال التضمين من Vertex AI مع النماذج المدعومة الجديدة"""
+        """تهيئة دوال التضمين من Vertex AI مع التكوين المحسن"""
         try:
             # البحث عن بيانات الاعتماد
             cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
@@ -170,11 +171,11 @@ class KnowledgeBaseManager:
                 try:
                     print(f"KB_MANAGER INFO: محاولة نموذج التضمين '{model_name}'...")
                     
-                    # إنشاء نموذج التضمين
+                    # إنشاء نموذج التضمين مع تكوين محسن
                     self.embedding_function = VertexAIEmbeddings(
                         model_name=model_name,
                         project=self.project_id,
-                        location=self.location
+                        location=self.location,
                     )
                     
                     # اختبار النموذج بنص بسيط
@@ -203,7 +204,7 @@ class KnowledgeBaseManager:
             print(f"1. تفعيل Vertex AI API في مشروع '{self.project_id}'")
             print(f"2. أن حساب الخدمة لديه صلاحية 'Vertex AI User'")
             print(f"3. أن المشروع يدعم نماذج التضمين في المنطقة '{self.location}'")
-            print(f"4. أن المشروع ليس جديداً (النماذج الجديدة تحتاج استخدام سابق)")
+            print(f"4. عدم تجاوز حدود الاستخدام (Quota)")
             self.embedding_function = None
             self.current_model = None
             
@@ -311,11 +312,11 @@ class KnowledgeBaseManager:
         return split_docs
 
     def build_knowledge_base(self) -> bool:
-        """بناء قاعدة المعرفة"""
+        """بناء قاعدة المعرفة مع معالجة الأخطاء المحسنة"""
         if not RAG_REQUIREMENTS_MET:
             print(f"KB_MANAGER ERROR: متطلبات RAG غير متوفرة لـ {self.collection_name}")
             return False
-           
+               
         if not self.embedding_function:
             print(f"KB_MANAGER ERROR: دالة التضمين غير مهيأة لـ {self.collection_name}.")
             return False
@@ -326,7 +327,7 @@ class KnowledgeBaseManager:
             if not self.db:
                 print(f"KB_MANAGER ERROR: فشل تهيئة ChromaDB قبل البناء لـ {self.collection_name}.")
                 return False
-           
+               
         print(f"KB_MANAGER INFO: بدء بناء قاعدة المعرفة لـ {self.collection_name} باستخدام نموذج '{self.current_model}'...")
         documents = self._load_documents()
        
@@ -342,17 +343,100 @@ class KnowledgeBaseManager:
         try:
             print(f"KB_MANAGER INFO: ملء مجموعة ChromaDB '{self.collection_name}' بـ {len(split_docs)} جزء...")
             
-            self.db.add_documents(split_docs)
+            # معالجة البيانات على دفعات صغيرة لتجنب خطأ 500
+            batch_size = 5  # تقليل حجم الدفعة أكثر
+            successful_batches = 0
+            failed_batches = 0
+            total_processed = 0
+            
+            for i in range(0, len(split_docs), batch_size):
+                batch = split_docs[i:i + batch_size]
+                batch_num = (i // batch_size) + 1
+                total_batches = (len(split_docs) + batch_size - 1) // batch_size
+                
+                print(f"KB_MANAGER INFO: معالجة الدفعة {batch_num}/{total_batches} ({len(batch)} مستند)")
+                
+                try:
+                    # محاولة إضافة الدفعة مع إعادة المحاولة
+                    max_retries = 3
+                    success = False
+                    
+                    for retry in range(max_retries):
+                        try:
+                            # تقسيم الدفعة إلى دفعات أصغر إذا فشلت
+                            if retry > 0:
+                                mini_batch_size = max(1, len(batch) // (retry + 1))
+                                for j in range(0, len(batch), mini_batch_size):
+                                    mini_batch = batch[j:j + mini_batch_size]
+                                    self.db.add_documents(mini_batch)
+                                    time.sleep(1)  # انتظار بين الدفعات الصغيرة
+                            else:
+                                self.db.add_documents(batch)
+                            
+                            successful_batches += 1
+                            total_processed += len(batch)
+                            print(f"KB_MANAGER INFO: نجحت الدفعة {batch_num}")
+                            success = True
+                            break
+                            
+                        except Exception as batch_error:
+                            error_msg = str(batch_error)
+                            if ("Internal error" in error_msg or "500" in error_msg) and retry < max_retries - 1:
+                                wait_time = (2 ** retry) + 1
+                                print(f"KB_MANAGER WARNING: فشل الدفعة {batch_num}, محاولة {retry + 1}/{max_retries}, انتظار {wait_time}ث")
+                                time.sleep(wait_time)
+                                continue
+                            else:
+                                raise batch_error
+                    
+                    if not success:
+                        failed_batches += 1
+                        print(f"KB_MANAGER ERROR: فشل نهائي في معالجة الدفعة {batch_num}")
+                        
+                except Exception as batch_error:
+                    print(f"KB_MANAGER ERROR: فشل معالجة الدفعة {batch_num}: {batch_error}")
+                    failed_batches += 1
+                    
+                    # إذا فشلت أكثر من 70% من الدفعات، توقف
+                    total_attempted = successful_batches + failed_batches
+                    if total_attempted > 5 and failed_batches > (total_attempted * 0.7):
+                        print(f"KB_MANAGER ERROR: فشل أكثر من 70% من الدفعات، إيقاف المعالجة")
+                        break
+                    
+                    continue
+                
+                # انتظار قصير بين الدفعات لتجنب الضغط على الخدمة
+                if batch_num < total_batches:
+                    time.sleep(0.5)
 
-            count_after_build = self.db._collection.count()
-            print(f"KB_MANAGER SUCCESS: ✅ تم بناء قاعدة المعرفة لـ {self.collection_name} بنجاح!")
-            print(f"  عدد الأجزاء: {count_after_build}")
-            print(f"  النموذج المستخدم: {self.current_model}")
-            return True
+            # فحص النتائج النهائية
+            if successful_batches > 0:
+                try:
+                    count_after_build = self.db._collection.count()
+                    success_rate = successful_batches / (successful_batches + failed_batches) if (successful_batches + failed_batches) > 0 else 0
+                    
+                    if success_rate >= 0.5:  # إذا نجح 50% أو أكثر
+                        print(f"KB_MANAGER SUCCESS: ✅ تم بناء قاعدة المعرفة لـ {self.collection_name} بنجاح!")
+                        print(f"  الدفعات الناجحة: {successful_batches}/{successful_batches + failed_batches}")
+                        print(f"  عدد الأجزاء المحفوظة: {count_after_build}")
+                        print(f"  المستندات المعالجة: {total_processed}/{len(split_docs)}")
+                        print(f"  النموذج المستخدم: {self.current_model}")
+                        return True
+                    else:
+                        print(f"KB_MANAGER WARNING: تم بناء قاعدة المعرفة جزئياً لـ {self.collection_name}")
+                        print(f"  معدل النجاح منخفض: {success_rate:.1%}")
+                        return False
+                        
+                except Exception as count_error:
+                    print(f"KB_MANAGER WARNING: لا يمكن الحصول على العدد النهائي: {count_error}")
+                    return successful_batches > failed_batches
+            else:
+                print(f"KB_MANAGER ERROR: فشل في حفظ أي دفعة لـ {self.collection_name}")
+                return False
+                
         except Exception as e_build:
             print(f"KB_MANAGER ERROR: فشل بناء ChromaDB لـ {self.collection_name}: {e_build}")
-            traceback.print_exc()
-            self.db = None
+            print(f"KB_MANAGER INFO: سيحاول النظام العمل بدون قاعدة المعرفة لهذه المادة")
             return False
 
     def get_retriever(self, search_type: str = "similarity", k_results: int = 3) -> Optional[Any]:
@@ -360,7 +444,7 @@ class KnowledgeBaseManager:
         if not self.db:
             print(f"KB_MANAGER ERROR: ChromaDB غير مهيأة للمجموعة '{self.collection_name}'.")
             return None
-           
+               
         try:
             return self.db.as_retriever(
                 search_type=search_type,
@@ -431,7 +515,7 @@ def create_all_knowledge_base_managers(grade_subjects_config: Dict[str, str],
                                      project_id: str,
                                      location: str = "us-central1",
                                      force_recreate: bool = False) -> Dict[str, Optional[KnowledgeBaseManager]]:
-    """إنشاء مديري قواعد المعرفة لجميع المواد"""
+    """إنشاء مديري قواعد المعرفة لجميع المواد مع معالجة محسنة للأخطاء"""
     managers = {}
     print(f"KB_MANAGER INFO: بدء إنشاء مديري قواعد المعرفة لـ {target_grade_folder}...")
 
@@ -449,23 +533,18 @@ def create_all_knowledge_base_managers(grade_subjects_config: Dict[str, str],
             )
            
             if manager.embedding_function and manager.db:
-                if manager.build_knowledge_base():
-                    managers[manager_key] = manager
-                    print(f"KB_MANAGER SUCCESS: تم إنشاء مدير قاعدة المعرفة وبنائها/تحميلها بنجاح: {manager_key}")
-                else:
-                    print(f"KB_MANAGER WARNING: فشل بناء قاعدة المعرفة أو كانت فارغة: {manager_key}.")
-                    managers[manager_key] = manager
-            else:
-                print(f"KB_MANAGER ERROR: فشل تهيئة مدير قاعدة المعرفة: {manager_key}.")
-                managers[manager_key] = None
-               
-        except Exception as e:
-            print(f"KB_MANAGER ERROR: خطأ عام في إنشاء مدير قاعدة المعرفة {manager_key}: {e}")
-            traceback.print_exc()
-            managers[manager_key] = None
-   
-    return managers
-
-if __name__ == "__main__":
-    print("KB_MANAGER INFO: اختبار KnowledgeBaseManager...")
-    check_rag_requirements()
+                # محاولة بناء قاعدة المعرفة مع إعادة المحاولة
+                build_success = False
+                max_build_attempts = 2
+                
+                for attempt in range(max_build_attempts):
+                    try:
+                        if manager.build_knowledge_base():
+                            build_success = True
+                            break
+                        else:
+                            print(f"KB_MANAGER WARNING: فشل بناء قاعدة المعرفة للمحاولة {attempt + 1}: {manager_key}")
+                            if attempt < max_build_attempts - 1:
+                                time.sleep(3)  # انتظار قبل المحاولة التالية
+                    except Exception as build_error:
+                        print(f"
