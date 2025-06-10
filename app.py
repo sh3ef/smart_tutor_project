@@ -345,7 +345,7 @@ def initialize_gemini_client(project_id: str, location: str):
     if not GEMINI_CLIENT_AVAILABLE:
         return None
     try:
-        client = GeminiClientVertexAI(project_id=project_id, location=location, model_name="gemini-1.5-flash-001") # استخدام النموذج الأحدث
+        client = GeminiClientVertexAI(project_id=project_id, location=location, model_name="gemini-2.0-flash") # استخدام النموذج الأحدث
         if client.model:
             return client
         return None
