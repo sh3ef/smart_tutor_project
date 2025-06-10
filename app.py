@@ -15,6 +15,15 @@ from pathlib import Path
 # إصلاحات النظام
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
+# إصلاح مشكلة protobuf
+import sys
+try:
+    import google.protobuf
+    print(f"Protobuf version: {google.protobuf.__version__}")
+except ImportError:
+    print("Protobuf not installed")
+
+# إصلاح distutils
 try:
     import distutils
 except ImportError:
@@ -84,6 +93,14 @@ try:
 except Exception as e:
     print(f"❌ فشل تحميل Code executor: {e}")
     CODE_EXECUTOR_AVAILABLE = False
+    # دالة احتياطية
+    def save_svg_content_to_file(svg_content: str, path: str) -> bool:
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(svg_content)
+            return True
+        except:
+            return False
 
 print("🏁 انتهى تحميل الوحدات:")
 print(f"   - Gemini Client: {'✅' if GEMINI_CLIENT_AVAILABLE else '❌'}")
@@ -344,99 +361,128 @@ def check_knowledge_base_detailed_status(project_id: str, location: str) -> Dict
         return {
             "available": False,
             "reason": "KnowledgeBaseManager غير متاح",
-            "details": "مكتبات RAG غير مثبتة بشكل صحيح"
+            "details": "مكتبات RAG غير مثبتة بشكل صحيح",
+            "docs_exist": False,
+            "dbs_exist": False,
+            "total_expected": 0,
+            "total_found_docs": 0,
+            "total_found_dbs": 0,
+            "missing_docs": [],
+            "missing_dbs": [],
+            "empty_docs": [],
+            "build_errors": [],
+            "grade_details": {}
         }
     
-    knowledge_docs_path = Path("knowledge_base_docs")
-    docs_exist = knowledge_docs_path.exists()
-    
-    chroma_dbs_path = Path("chroma_dbs")
-    dbs_exist = chroma_dbs_path.exists()
-    
-    detailed_status = {
-        "available": True,
-        "docs_exist": docs_exist,
-        "dbs_exist": dbs_exist,
-        "grade_details": {},
-        "total_expected": 0,
-        "total_found_docs": 0,
-        "total_found_dbs": 0,
-        "missing_docs": [],
-        "missing_dbs": [],
-        "empty_docs": [],
-        "build_errors": []
-    }
-    
-    # فحص تفصيلي لكل صف ومادة
-    for grade_key, grade_info in GRADE_SUBJECTS.items():
-        grade_details = {"name": grade_info['name'], "subjects": {}}
+    try:
+        knowledge_docs_path = Path("knowledge_base_docs")
+        docs_exist = knowledge_docs_path.exists()
         
-        for subject_key, subject_name in grade_info['subjects'].items():
-            subject_folder = SUBJECT_FOLDERS.get(subject_key, subject_key)
-            detailed_status["total_expected"] += 1
-            
-            # فحص مجلد المستندات
-            docs_path = knowledge_docs_path / grade_key / subject_folder
-            docs_status = {
-                "path": str(docs_path),
-                "exists": docs_path.exists(),
-                "has_files": False,
-                "file_count": 0,
-                "file_types": []
-            }
-            
-            if docs_path.exists():
-                try:
-                    files = list(docs_path.glob("*"))
-                    docs_status["file_count"] = len([f for f in files if f.is_file()])
-                    docs_status["has_files"] = docs_status["file_count"] > 0
-                    docs_status["file_types"] = list(set([f.suffix for f in files if f.is_file()]))
-                    
-                    if docs_status["has_files"]:
-                        detailed_status["total_found_docs"] += 1
-                    else:
-                        detailed_status["empty_docs"].append(f"{grade_key}/{subject_folder}")
-                except Exception as e:
-                    docs_status["error"] = str(e)
-                    detailed_status["build_errors"].append(f"خطأ في قراءة {docs_path}: {e}")
-            else:
-                detailed_status["missing_docs"].append(f"{grade_key}/{subject_folder}")
-            
-            # فحص قاعدة البيانات
-            collection_name = f"{grade_key}_{subject_folder.replace(' ', '_').lower()}_coll"
-            db_path = chroma_dbs_path / collection_name
-            db_status = {
-                "collection_name": collection_name,
-                "path": str(db_path),
-                "exists": db_path.exists(),
-                "has_data": False
-            }
-            
-            if db_path.exists():
-                try:
-                    data_files = list(db_path.glob("**/*"))
-                    db_status["has_data"] = len([f for f in data_files if f.is_file()]) > 0
-                    
-                    if db_status["has_data"]:
-                        detailed_status["total_found_dbs"] += 1
-                    else:
-                        detailed_status["missing_dbs"].append(collection_name)
-                except Exception as e:
-                    db_status["error"] = str(e)
-                    detailed_status["build_errors"].append(f"خطأ في قراءة {db_path}: {e}")
-            else:
-                detailed_status["missing_dbs"].append(collection_name)
-            
-            grade_details["subjects"][subject_key] = {
-                "name": subject_name,
-                "folder": subject_folder,
-                "docs": docs_status,
-                "db": db_status
-            }
+        chroma_dbs_path = Path("chroma_dbs")
+        dbs_exist = chroma_dbs_path.exists()
         
-        detailed_status["grade_details"][grade_key] = grade_details
-    
-    return detailed_status
+        detailed_status = {
+            "available": True,
+            "docs_exist": docs_exist,
+            "dbs_exist": dbs_exist,
+            "grade_details": {},
+            "total_expected": 0,
+            "total_found_docs": 0,
+            "total_found_dbs": 0,
+            "missing_docs": [],
+            "missing_dbs": [],
+            "empty_docs": [],
+            "build_errors": []
+        }
+        
+        # فحص تفصيلي لكل صف ومادة
+        for grade_key, grade_info in GRADE_SUBJECTS.items():
+            grade_details = {"name": grade_info['name'], "subjects": {}}
+            
+            for subject_key, subject_name in grade_info['subjects'].items():
+                subject_folder = SUBJECT_FOLDERS.get(subject_key, subject_key)
+                detailed_status["total_expected"] += 1
+                
+                # فحص مجلد المستندات
+                docs_path = knowledge_docs_path / grade_key / subject_folder
+                docs_status = {
+                    "path": str(docs_path),
+                    "exists": docs_path.exists(),
+                    "has_files": False,
+                    "file_count": 0,
+                    "file_types": []
+                }
+                
+                if docs_path.exists():
+                    try:
+                        files = list(docs_path.glob("*"))
+                        docs_status["file_count"] = len([f for f in files if f.is_file()])
+                        docs_status["has_files"] = docs_status["file_count"] > 0
+                        docs_status["file_types"] = list(set([f.suffix for f in files if f.is_file()]))
+                        
+                        if docs_status["has_files"]:
+                            detailed_status["total_found_docs"] += 1
+                        else:
+                            detailed_status["empty_docs"].append(f"{grade_key}/{subject_folder}")
+                    except Exception as e:
+                        docs_status["error"] = str(e)
+                        detailed_status["build_errors"].append(f"خطأ في قراءة {docs_path}: {e}")
+                else:
+                    detailed_status["missing_docs"].append(f"{grade_key}/{subject_folder}")
+                
+                # فحص قاعدة البيانات
+                collection_name = f"{grade_key}_{subject_folder.replace(' ', '_').lower()}_coll"
+                db_path = chroma_dbs_path / collection_name
+                db_status = {
+                    "collection_name": collection_name,
+                    "path": str(db_path),
+                    "exists": db_path.exists(),
+                    "has_data": False
+                }
+                
+                if db_path.exists():
+                    try:
+                        data_files = list(db_path.glob("**/*"))
+                        db_status["has_data"] = len([f for f in data_files if f.is_file()]) > 0
+                        
+                        if db_status["has_data"]:
+                            detailed_status["total_found_dbs"] += 1
+                        else:
+                            detailed_status["missing_dbs"].append(collection_name)
+                    except Exception as e:
+                        db_status["error"] = str(e)
+                        detailed_status["build_errors"].append(f"خطأ في قراءة {db_path}: {e}")
+                else:
+                    detailed_status["missing_dbs"].append(collection_name)
+                
+                grade_details["subjects"][subject_key] = {
+                    "name": subject_name,
+                    "folder": subject_folder,
+                    "docs": docs_status,
+                    "db": db_status
+                }
+            
+            detailed_status["grade_details"][grade_key] = grade_details
+        
+        return detailed_status
+        
+    except Exception as e:
+        # في حالة حدوث خطأ، إرجاع قيم افتراضية آمنة
+        return {
+            "available": False,
+            "reason": f"خطأ في الفحص: {str(e)}",
+            "details": str(e),
+            "docs_exist": False,
+            "dbs_exist": False,
+            "total_expected": 0,
+            "total_found_docs": 0,
+            "total_found_dbs": 0,
+            "missing_docs": [],
+            "missing_dbs": [],
+            "empty_docs": [],
+            "build_errors": [str(e)],
+            "grade_details": {}
+        }
 
 @st.cache_data
 def build_knowledge_bases_with_error_handling(project_id: str, location: str, force_rebuild: bool = False) -> Dict[str, Any]:
@@ -1062,12 +1108,18 @@ def main():
    
     # تهيئة المكونات
     with st.spinner("🔄 جاري تهيئة المعلم الذكي..."):
-        gemini_client = initialize_gemini_client(project_id, location)
-        if not gemini_client and GEMINI_CLIENT_AVAILABLE:
-            st.error("❌ فشل تهيئة عميل Gemini")
-            st.stop()
+        gemini_client = None
+        if GEMINI_CLIENT_AVAILABLE:
+            gemini_client = initialize_gemini_client(project_id, location)
+            if not gemini_client:
+                st.warning("⚠️ فشل تهيئة عميل Gemini - سيعمل التطبيق بوضع محدود")
+        else:
+            st.warning("⚠️ عميل Gemini غير متاح - سيعمل التطبيق بوضع محدود")
        
-        kb_manager = initialize_knowledge_base(project_id, location, selected_grade, selected_subject)
+        kb_manager = None
+        if KB_MANAGER_AVAILABLE:
+            kb_manager = initialize_knowledge_base(project_id, location, selected_grade, selected_subject)
+        
         prompt_engine = initialize_prompt_engine()
    
     # عرض رسالة الترحيب إذا لم تبدأ المحادثة
@@ -1077,8 +1129,10 @@ def main():
             st.write(f"أهلاً وسهلاً! أنا معلمك الذكي للصف {GRADE_SUBJECTS[selected_grade]['name']} في مادة {GRADE_SUBJECTS[selected_grade]['subjects'][selected_subject]}.")
             if GEMINI_CLIENT_AVAILABLE and gemini_client:
                 st.write("اسألني أي سؤال وسأجيبك بشرح مبسط ورسم توضيحي عند الحاجة! 😊")
+            elif PROMPT_ENGINE_AVAILABLE:
+                st.write("حالياً أعمل بوضع محدود (بدون رسوم توضيحية). يمكنني الإجابة على أسئلتك النصية! 📚")
             else:
-                st.write("حالياً، النظام في مرحلة الإعداد. يرجى المحاولة لاحقاً.")
+                st.warning("⚠️ النظام يعمل بوضع محدود جداً. بعض الميزات غير متاحة حالياً.")
        
         st.session_state.conversation_started = True
    
