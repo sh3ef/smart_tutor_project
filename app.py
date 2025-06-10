@@ -1,4 +1,4 @@
-# app.py - التطبيق الرئيسي للمعلم الذكي (مع بناء قواعد البيانات التلقائي) - محدث
+# app.py - التطبيق الرئيسي للمعلم الذكي (مع بناء قواعد البيانات التلقائي)
 
 import os
 import sys
@@ -98,7 +98,7 @@ st.set_page_config(
 
 # متغيرات التطبيق العامة
 APP_TITLE = "🤖 المعلم الذكي السعودي"
-VERSION = "3.1 - Cloud Edition المحدث"
+VERSION = "3.0 - Cloud Edition"
 
 # إعدادات الصفوف والمواد
 GRADE_SUBJECTS = {
@@ -431,105 +431,6 @@ def retrieve_context(kb_manager: Optional[any], query: str, k_results: int = 3) 
         print(f"⚠️ خطأ في استرجاع السياق: {e}")
         return ""
 
-def should_search_in_curriculum(question: str, subject_key: str) -> bool:
-    """
-    تحديد ما إذا كان السؤال يحتاج البحث في المنهج أم لا
-    """
-    # أسئلة عامة لا تحتاج بحث في المنهج
-    general_greetings = [
-        "السلام عليكم", "مرحبا", "أهلا", "صباح الخير", 
-        "مساء الخير", "كيف حالك", "أهلاً وسهلاً", "حياك الله",
-        "وعليكم السلام", "شكرا", "شكراً"
-    ]
-    
-    # أسئلة شخصية عامة
-    personal_questions = [
-        "ما اسمك", "من أنت", "ماذا تفعل", "كيف يمكنك مساعدتي",
-        "هل أنت ذكي", "كم عمرك"
-    ]
-    
-    question_lower = question.lower().strip()
-    
-    # فحص التحيات
-    for greeting in general_greetings:
-        if greeting in question_lower:
-            return False
-    
-    # فحص الأسئلة الشخصية        
-    for personal in personal_questions:
-        if personal in question_lower:
-            return False
-    
-    # كلمات مفاتيح تشير لمحتوى تعليمي حقيقي
-    educational_keywords = {
-        'arabic': ['حرف', 'كلمة', 'جملة', 'قراءة', 'كتابة', 'إملاء', 'نحو', 'شعر', 'نص', 'قصة'],
-        'math': ['رقم', 'عدد', 'جمع', 'طرح', 'ضرب', 'قسمة', 'شكل', 'هندسة', 'حساب', 'مسألة', 'عملية'],
-        'science': ['نبات', 'حيوان', 'ماء', 'هواء', 'تجربة', 'علم', 'طبيعة', 'جسم', 'كائن', 'بيئة'],
-        'islamic': ['صلاة', 'وضوء', 'دعاء', 'قرآن', 'سورة', 'حديث', 'أركان', 'إيمان', 'إسلام'],
-        'english': ['letter', 'word', 'alphabet', 'english', 'انجليزي', 'انجليزية']
-    }
-    
-    subject_keywords = educational_keywords.get(subject_key, [])
-    for keyword in subject_keywords:
-        if keyword in question_lower:
-            return True
-    
-    # إذا كان السؤال طويل ومعقد، احتمال أنه تعليمي
-    if len(question.split()) > 5:
-        return True
-        
-    return False
-
-def should_generate_svg(question: str, explanation: str, subject_key: str) -> bool:
-    """
-    تحديد ما إذا كان السؤال/الشرح يحتاج رسماً توضيحياً
-    """
-    # أسئلة لا تحتاج رسم
-    no_svg_patterns = [
-        "السلام عليكم", "مرحبا", "أهلا", "شكرا", "ما اسمك", 
-        "من أنت", "كيف حالك", "صباح الخير", "مساء الخير",
-        "وعليكم السلام", "حياك الله", "أهلاً وسهلاً", "شكراً"
-    ]
-    
-    question_lower = question.lower().strip()
-    
-    # فحص الأنماط التي لا تحتاج رسم
-    for pattern in no_svg_patterns:
-        if pattern in question_lower:
-            return False
-    
-    # كلمات تشير لحاجة للرسم
-    svg_needed_keywords = {
-        'general': ['ارسم', 'وضح', 'اشرح', 'كيف يبدو', 'شكل', 'صورة', 'مخطط'],
-        'arabic': ['حرف', 'احرف', 'كلمة', 'كلمات'],
-        'math': ['رقم', 'ارقام', 'شكل هندسي', 'مثلث', 'دائرة', 'مربع', 'جمع', 'طرح', 'عملية'],
-        'science': ['نبات', 'حيوان', 'اجزاء', 'دورة', 'تجربة', 'كائن'],
-        'islamic': ['وضوء', 'صلاة', 'اركان'],
-        'english': ['letter', 'alphabet', 'حرف انجليزي']
-    }
-    
-    # فحص الكلمات العامة
-    for keyword in svg_needed_keywords['general']:
-        if keyword in question_lower:
-            return True
-    
-    # فحص الكلمات الخاصة بالمادة
-    subject_keywords = svg_needed_keywords.get(subject_key, [])
-    for keyword in subject_keywords:
-        if keyword in question_lower:
-            return True
-    
-    # إذا كان الشرح يحتوي على مفاهيم بصرية
-    visual_concepts = [
-        'شكل', 'لون', 'حجم', 'مكان', 'أجزاء', 'ترتيب', 'خطوات'
-    ]
-    
-    for concept in visual_concepts:
-        if concept in explanation.lower():
-            return True
-    
-    return False
-
 def initialize_session_state():
     """تهيئة حالة الجلسة للمحادثة المستمرة"""
     if 'messages' not in st.session_state:
@@ -546,65 +447,6 @@ def initialize_session_state():
         
     if 'knowledge_bases_built' not in st.session_state:
         st.session_state.knowledge_bases_built = False
-
-def process_user_question(question: str, gemini_client, kb_manager, prompt_engine, grade_key: str, subject_key: str):
-    """معالجة سؤال المستخدم وإرجاع الإجابة - محدثة"""
-   
-    # تحديد ما إذا كان يجب البحث في المنهج
-    should_search = should_search_in_curriculum(question, subject_key)
-    
-    # استرجاع السياق من قاعدة المعرفة
-    context = ""
-    search_status = "not_searched"
-   
-    if should_search and kb_manager and hasattr(kb_manager, 'db') and kb_manager.db:
-        with st.spinner("🔍 البحث في المنهج الدراسي..."):
-            context = retrieve_context(kb_manager, question)
-            if context:
-                search_status = "found"
-            else:
-                search_status = "not_found"
-    else:
-        search_status = "not_needed"
-   
-    # إنشاء البرومبت المخصص
-    if prompt_engine:
-        specialized_prompt = prompt_engine.get_specialized_prompt(
-            question=question,
-            app_subject_key=subject_key,
-            grade_key=grade_key,
-            retrieved_context_str=context if context else None
-        )
-    else:
-        # برومبت بسيط إذا لم يكن محرك البرومبت متاحاً
-        specialized_prompt = f"أنت معلم للصف {grade_key} في مادة {subject_key}. اشرح للطفل: {question}"
-   
-    # إرسال الطلب لـ Gemini
-    if gemini_client:
-        response = gemini_client.query_for_explanation_and_svg(specialized_prompt)
-    else:
-        # رد افتراضي إذا لم يكن Gemini متاحاً
-        response = {
-            "text_explanation": "عذرًا، المعلم الذكي غير جاهز حالياً. يرجى المحاولة لاحقاً.",
-            "svg_code": None,
-            "quality_scores": {},
-            "quality_issues": ["المعلم الذكي غير متاح"]
-        }
-    
-    # تحديد ما إذا كان يجب الاحتفاظ بالرسم
-    explanation = response.get("text_explanation", "")
-    needs_svg = should_generate_svg(question, explanation, subject_key)
-    
-    if not needs_svg:
-        response["svg_code"] = None
-   
-    return {
-        'explanation': explanation,
-        'svg_code': response.get("svg_code") if needs_svg else None,
-        'quality_scores': response.get("quality_scores", {}),
-        'quality_issues': response.get("quality_issues", []),
-        'search_status': search_status
-    }
 
 def display_sidebar():
     """عرض الشريط الجانبي"""
@@ -715,6 +557,51 @@ def display_sidebar():
        
         return selected_grade, selected_subject
 
+def process_user_question(question: str, gemini_client, kb_manager, prompt_engine, grade_key: str, subject_key: str):
+    """معالجة سؤال المستخدم وإرجاع الإجابة"""
+   
+    # استرجاع السياق من قاعدة المعرفة
+    context = ""
+    search_status = "not_found"
+   
+    if kb_manager and hasattr(kb_manager, 'db') and kb_manager.db:
+        with st.spinner("🔍 البحث في المنهج الدراسي..."):
+            context = retrieve_context(kb_manager, question)
+            if context:
+                search_status = "found"
+   
+    # إنشاء البرومبت المخصص
+    if prompt_engine:
+        specialized_prompt = prompt_engine.get_specialized_prompt(
+            question=question,
+            app_subject_key=subject_key,
+            grade_key=grade_key,
+            retrieved_context_str=context if context else None
+        )
+    else:
+        # برومبت بسيط إذا لم يكن محرك البرومبت متاحاً
+        specialized_prompt = f"أنت معلم للصف {grade_key} في مادة {subject_key}. اشرح للطفل: {question}"
+   
+    # إرسال الطلب لـ Gemini
+    if gemini_client:
+        response = gemini_client.query_for_explanation_and_svg(specialized_prompt)
+    else:
+        # رد افتراضي إذا لم يكن Gemini متاحاً
+        response = {
+            "text_explanation": "عذرًا، المعلم الذكي غير جاهز حالياً. يرجى المحاولة لاحقاً.",
+            "svg_code": None,
+            "quality_scores": {},
+            "quality_issues": ["المعلم الذكي غير متاح"]
+        }
+   
+    return {
+        'explanation': response.get("text_explanation", "عذرًا، لم أتمكن من إنتاج شرح مناسب."),
+        'svg_code': response.get("svg_code"),
+        'quality_scores': response.get("quality_scores", {}),
+        'quality_issues': response.get("quality_issues", []),
+        'search_status': search_status
+    }
+
 def add_message(role: str, content: str, **kwargs):
     """إضافة رسالة جديدة للمحادثة"""
     message = {
@@ -757,7 +644,7 @@ def export_conversation():
     )
 
 def display_message(message: Dict, is_new: bool = False):
-    """عرض رسالة واحدة في المحادثة - محدثة"""
+    """عرض رسالة واحدة في المحادثة"""
    
     if message["role"] == "user":
         # رسالة المستخدم
@@ -771,14 +658,12 @@ def display_message(message: Dict, is_new: bool = False):
         with st.chat_message("assistant", avatar="🤖"):
             st.write("**المعلم الذكي:**")
            
-            # عرض حالة البحث المحدثة
+            # عرض حالة البحث إذا كانت موجودة
             if 'search_status' in message:
                 if message['search_status'] == 'found':
-                    st.success("✅ تم العثور على معلومات ذات صلة من المنهج الدراسي")
+                    st.success("✅ تم العثور على معلومات ذات صلة من المنهج")
                 elif message['search_status'] == 'not_found':
-                    st.info("ℹ️ تم البحث في المنهج ولم يتم العثور على معلومات محددة، الاعتماد على المعرفة العامة")
-                elif message['search_status'] == 'not_needed':
-                    st.info("💬 سؤال عام - لا يحتاج بحث في المنهج")
+                    st.info("ℹ️ لم يتم العثور على معلومات في المنهج، سيتم الاعتماد على المعرفة العامة")
            
             # عرض الشرح النصي
             if 'explanation' in message:
@@ -816,9 +701,6 @@ def display_message(message: Dict, is_new: bool = False):
                         mime="image/svg+xml",
                         key=f"download_svg_{message.get('id', 'unknown')}"
                     )
-            elif 'svg_code' in message and message['svg_code'] is None:
-                # إشارة بسيطة أن الرسم لم يكن مطلوباً
-                pass  # لا نعرض شيئاً
            
             # عرض معلومات الجودة إذا كانت متاحة
             if 'quality_scores' in message and message['quality_scores']:
@@ -827,10 +709,7 @@ def display_message(message: Dict, is_new: bool = False):
                     with col1:
                         st.metric("جودة الشرح", f"{message['quality_scores'].get('explanation', 0)}%")
                     with col2:
-                        if message.get('svg_code'):
-                            st.metric("جودة الرسم", f"{message['quality_scores'].get('svg', 0)}%")
-                        else:
-                            st.info("لا يحتاج رسماً توضيحياً")
+                        st.metric("جودة الرسم", f"{message['quality_scores'].get('svg', 0)}%")
                    
                     if 'quality_issues' in message and message['quality_issues']:
                         st.write("**ملاحظات للتحسين:**")
@@ -907,8 +786,7 @@ def main():
             st.write("**المعلم الذكي:**")
             st.write(f"أهلاً وسهلاً! أنا معلمك الذكي للصف {GRADE_SUBJECTS[selected_grade]['name']} في مادة {GRADE_SUBJECTS[selected_grade]['subjects'][selected_subject]}.")
             if GEMINI_CLIENT_AVAILABLE and gemini_client:
-                st.write("اسألني أي سؤال وسأجيبك بشرح مبسط! 😊")
-                st.write("💡 **نصيحة:** أطرح أسئلة محددة عن المادة للحصول على أفضل النتائج")
+                st.write("اسألني أي سؤال وسأجيبك بشرح مبسط ورسم توضيحي! 😊")
             else:
                 st.write("حالياً، النظام في مرحلة الإعداد. يرجى المحاولة لاحقاً.")
        
@@ -938,11 +816,9 @@ def main():
                    
                     # عرض حالة البحث
                     if response_data['search_status'] == 'found':
-                        st.success("✅ تم العثور على معلومات ذات صلة من المنهج الدراسي")
+                        st.success("✅ تم العثور على معلومات ذات صلة من المنهج")
                     elif response_data['search_status'] == 'not_found':
-                        st.info("ℹ️ تم البحث في المنهج ولم يتم العثور على معلومات محددة، الاعتماد على المعرفة العامة")
-                    elif response_data['search_status'] == 'not_needed':
-                        st.info("💬 سؤال عام - لا يحتاج بحث في المنهج")
+                        st.info("ℹ️ لم يتم العثور على معلومات في المنهج، سيتم الاعتماد على المعرفة العامة")
                    
                     # عرض الشرح
                     st.write(response_data['explanation'])
@@ -985,10 +861,7 @@ def main():
                             with col1:
                                 st.metric("جودة الشرح", f"{response_data['quality_scores'].get('explanation', 0)}%")
                             with col2:
-                                if response_data.get('svg_code'):
-                                    st.metric("جودة الرسم", f"{response_data['quality_scores'].get('svg', 0)}%")
-                                else:
-                                    st.info("لا يحتاج رسماً توضيحياً")
+                                st.metric("جودة الرسم", f"{response_data['quality_scores'].get('svg', 0)}%")
                    
                     # إضافة إجابة المساعد للمحادثة
                     add_message("assistant", "", **response_data)
@@ -999,7 +872,7 @@ def main():
                     add_message("assistant", error_msg)
    
     # قسم المساعدة
-    with st.expander("❓ كيفية استخدام المعلم الذكي المحدث"):
+    with st.expander("❓ كيفية استخدام المعلم الذكي"):
         st.markdown("""
         ### 🎯 نصائح للحصول على أفضل إجابة:
        
@@ -1023,11 +896,6 @@ def main():
         - "Teach me the letter A"
         - "What colors do you know?"
        
-        ### 🆕 المميزات الجديدة:
-        - **بحث ذكي**: يبحث فقط في المادة المحددة
-        - **رسم ذكي**: ينتج رسماً فقط عند الحاجة
-        - **ردود مناسبة**: يتعامل مع التحيات والأسئلة العامة بذكاء
-        
         ### 💡 ميزات المحادثة المستمرة:
         - **يتذكر**: جميع أسئلتك وإجاباتي السابقة
         - **يتطور**: يمكنك البناء على الأسئلة السابقة
@@ -1039,11 +907,10 @@ def main():
     st.divider()
     st.markdown("""
     <div style='text-align: center; color: gray; font-size: 0.8em;'>
-    💡 المعلم الذكي السعودي المحدث - مدعوم بتقنية Gemini AI و RAG<br>
+    💡 المعلم الذكي السعودي - مدعوم بتقنية Gemini AI و RAG<br>
     🎯 مخصص للمرحلة الابتدائية - منهج المملكة العربية السعودية<br>
     🔐 آمن ومحمي - جميع البيانات الحساسة في Streamlit Secrets<br>
-    💬 يحفظ تاريخ محادثتك ويتذكر الأسئلة السابقة<br>
-    🆕 بحث ذكي منفصل لكل مادة + رسم ذكي حسب الحاجة
+    💬 يحفظ تاريخ محادثتك ويتذكر الأسئلة السابقة
     </div>
     """, unsafe_allow_html=True)
 
