@@ -1,21 +1,38 @@
-streamlit
-google-cloud-aiplatform
-vertexai
-protobuf>=3.19.0,<4.0.0
-langchain
-langchain-community
-langchain-core
-langchain-chroma
-langchain-google-vertexai<1.0.0
-chromadb
-pysqlite3-binary
-unstructured
-python-docx
-markdown
-python-dotenv
-requests
-numpy
-pandas
-setuptools<81
-pydantic>=1.10.0,<2.0.0
+# requirements.txt - محدث لحل مشاكل المكتبات
+
+# Streamlit Framework
+streamlit>=1.28.0
+
+# Google Cloud & Vertex AI
+google-cloud-aiplatform>=1.38.0
+vertexai>=1.38.0
+
+# LangChain Core
+langchain>=0.1.0
+langchain-core>=0.1.0
+langchain-community>=0.0.10
+
+# LangChain Google Integration
+langchain-google-vertexai>=0.1.0
+
+# ChromaDB
+chromadb>=0.4.18
+langchain-chroma>=0.1.0
+
+# Document Processing
+unstructured>=0.11.0
 docx2txt>=0.8
+python-docx>=1.1.0
+
+# Text Processing
+python-dotenv>=1.0.0
+
+# SQLite upgrade
+pysqlite3-binary>=0.5.0
+
+# Optional but recommended
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Error handling and retries
+tenacity>=8.2.0
