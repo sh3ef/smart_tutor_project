@@ -1,5 +1,3 @@
-# app.py - التطبيق الرئيسي للمعلم الذكي (مع ميزة Chat History Memory والنظام الذكي للرسم)
-
 import os
 import sys
 import streamlit as st
@@ -85,6 +83,15 @@ except Exception as e:
             return True
         except:
             return False
+
+# تحميل فهرس المواد التفاعلي
+try:
+    from tutor_ai.curriculum_index import CurriculumIndex
+    CURRICULUM_INDEX_AVAILABLE = True
+    print("✅ تم تحميل فهرس المنهج بنجاح")
+except Exception as e:
+    CURRICULUM_INDEX_AVAILABLE = False
+    print(f"⚠️ فهرس المنهج غير متاح: {e}")
 
 # إعداد صفحة Streamlit
 st.set_page_config(
@@ -280,8 +287,9 @@ class ChatHistoryAnalyzer:
         
         return context_summary
 
-def classify_question_type(question: str, chat_history: List[Dict] = None) -> Dict[str, any]:
-    """تصنيف نوع السؤال مع مراعاة تاريخ المحادثة واتخاذ قرار ذكي للرسم المحسن"""
+def classify_question_type_enhanced(question: str, chat_history: List[Dict] = None, 
+                                   grade_key: str = None, subject_key: str = None) -> Dict[str, any]:
+    """تصنيف نوع السؤال مع كشف طلبات الدروس المحددة ومراعاة تاريخ المحادثة واتخاذ قرار ذكي للرسم المحسن"""
     question_lower = question.lower().strip()
     analyzer = ChatHistoryAnalyzer()
     
@@ -405,6 +413,16 @@ def classify_question_type(question: str, chat_history: List[Dict] = None) -> Di
     # قرار نهائي: رسم فقط للمواضيع التعليمية وليس التحيات
     needs_drawing = smart_drawing_decision and not is_greeting and drawing_confidence >= 50
     
+    # إضافة كشف الدروس المحددة
+    lesson_request = None
+    if CURRICULUM_INDEX_AVAILABLE and grade_key and subject_key:
+        try:
+            curriculum_index = CurriculumIndex()
+            lesson_request = curriculum_index.detect_lesson_request(question, grade_key, subject_key)
+        except Exception as e:
+            print(f"خطأ في كشف الدرس: {e}")
+            lesson_request = None
+    
     return {
         'is_greeting': is_greeting,
         'is_educational': is_educational,
@@ -425,7 +443,11 @@ def classify_question_type(question: str, chat_history: List[Dict] = None) -> Di
             needs_drawing, is_high_priority_visual, is_medium_priority_visual, 
             is_math_question, explicit_drawing_requested, is_text_only_topic, 
             has_references, is_clarification, drawing_confidence
-        )
+        ),
+        # إضافة معلومات الدرس المحدد
+        'lesson_request': lesson_request,
+        'is_specific_lesson': lesson_request is not None,
+        'enhanced_search_needed': lesson_request is not None
     }
 
 def _get_drawing_decision_reason(needs_drawing: bool, is_high_visual: bool, is_medium_visual: bool,
@@ -462,7 +484,7 @@ def get_greeting_response(question: str, grade_key: str, subject_key: str) -> Di
     elif any(word in question_lower for word in ['مرحبا', 'مرحباً', 'أهلا', 'أهلاً', 'hello', 'hi']):
         explanation = f"أهلاً وسهلاً يا صغيري! 🎉 مرحباً بك في درس {subject_name}! أنا هنا لأجعل التعلم ممتعاً وسهلاً لك. اسألني عن أي شيء تريد تعلمه! 🤓💫"
     elif any(word in question_lower for word in ['صباح الخير', 'good morning']):
-        explanation = f"صباح الخير يا نجم! ☀️ أتمنى لك يوماً رائعاً مليئاً بالتعلم والمرح! مستعد لنبدأ درس {subject_name} اليوم؟ 🌅📖"
+        explanation = f"صباح الخير يا نجم! ☀️ أتمنى لك يوماً رائعاً مليئاً بالتعلم والمرح! مستعد لنبدأ درس {subject_name} اليوم؟ 🌅"
     elif any(word in question_lower for word in ['مساء الخير', 'good evening']):
         explanation = f"مساء الخير يا بطل! 🌙 أرجو أن يكون يومك كان جميلاً! هيا نختتم اليوم بتعلم شيء جديد في {subject_name}! ⭐📚"
     elif any(word in question_lower for word in ['كيف حالك', 'كيف الحال', 'how are you']):
@@ -491,10 +513,10 @@ def should_search_curriculum(question: str, question_type: Dict[str, any]) -> bo
     # ابحث للأسئلة التعليمية أو التي تحتوي على مراجع
     return question_type['needs_curriculum_search'] or question_type['has_references']
 
-def create_smart_prompt(question: str, question_type: Dict[str, any], app_subject_key: str, 
-                       grade_key: str, retrieved_context_str: Optional[str], prompt_engine, 
-                       chat_history: List[Dict] = None) -> str:
-    """إنشاء برومبت ذكي يراعي نوع السؤال وتاريخ المحادثة مع قرار ذكي للرسم"""
+def create_enhanced_prompt(question: str, question_type: Dict[str, any], app_subject_key: str, 
+                          grade_key: str, retrieved_context_str: Optional[str], prompt_engine, 
+                          chat_history: List[Dict] = None) -> str:
+    """إنشاء برومبت محسن للدروس المحددة مع مراعاة نوع السؤال وتاريخ المحادثة مع قرار ذكي للرسم"""
     
     # بناء سياق المحادثة إذا كان هناك مراجع
     conversation_context = ""
@@ -522,6 +544,30 @@ def create_smart_prompt(question: str, question_type: Dict[str, any], app_subjec
         retrieved_context_str=retrieved_context_str,
         conversation_context=conversation_context
     )
+    
+    # إضافة تعليمات خاصة بالدروس المحددة
+    if question_type.get('is_specific_lesson') and question_type.get('lesson_request'):
+        lesson_info = question_type['lesson_request']['lesson_info']
+        
+        lesson_specific_instruction = f"""
+
+**🎯 تعليمات خاصة للدرس المحدد:**
+تم اكتشاف أن الطالب يسأل عن درس محدد من المنهج الدراسي:
+- الوحدة: {lesson_info.get('unit_name', 'غير محدد')}
+- الدرس: {lesson_info.get('lesson_name', 'غير محدد')}
+- المواضيع الرئيسية: {', '.join(lesson_info.get('keywords', []))}
+
+**تعليمات مهمة:**
+1. ركز على شرح محتوى هذا الدرس تحديداً بناءً على المعلومات المسترجعة من المنهج
+2. اجعل الشرح شاملاً ومتدرجاً كما لو كنت تشرح الدرس كاملاً للطالب
+3. استخدم المعلومات المسترجعة من المنهج كمرجع أساسي للشرح
+4. اربط الشرح بالوحدة والسياق العام للدرس
+5. إذا كان الدرس يحتوي على أمثلة أو تطبيقات، اذكرها بوضوح
+6. اجعل الشرح مناسباً لمستوى الصف الدراسي المحدد
+
+**ملاحظة:** هذا ليس سؤالاً عاماً، بل طلب شرح لدرس محدد من المنهج المدرسي.
+"""
+        base_prompt += lesson_specific_instruction
     
     # إضافة تعليمات خاصة بقرار الرسم الذكي المحسن
     if question_type['needs_drawing']:
@@ -924,44 +970,77 @@ def retrieve_context(kb_manager: Optional[any], query: str, k_results: int = 3) 
     except Exception as e:
         return ""
 
-def process_user_question_improved(question: str, gemini_client, kb_manager, prompt_engine, 
-                                 grade_key: str, subject_key: str, chat_history: List[Dict] = None):
-    """نسخة محسنة من معالج الأسئلة مع قرار ذكي للرسم ودعم تاريخ المحادثة"""
-    # تصنيف نوع السؤال مع مراعاة تاريخ المحادثة والقرار الذكي للرسم
-    question_type = classify_question_type(question, chat_history)
+def process_user_question_enhanced(question: str, gemini_client, kb_manager, prompt_engine, 
+                                  grade_key: str, subject_key: str, chat_history: List[Dict] = None):
+    """نسخة محسنة من معالج الأسئلة مع دعم الدروس المحددة وقرار ذكي للرسم ودعم تاريخ المحادثة"""
+    
+    # تصنيف السؤال مع كشف الدروس
+    question_type = classify_question_type_enhanced(question, chat_history, grade_key, subject_key)
     
     # التعامل مع التحيات
     if question_type['is_greeting']:
         return get_greeting_response(question, grade_key, subject_key)
     
-    # البحث في المنهج إذا لزم الأمر
+    # معالجة خاصة للدروس المحددة
     context = ""
     search_status = "not_searched"
     
-    # إذا كان السؤال يحتوي على مراجع، استخدم آخر موضوع للبحث
-    search_query = question
-    if question_type['has_references'] and chat_history:
-        analyzer = ChatHistoryAnalyzer()
-        last_topic = analyzer.extract_last_topic(chat_history)
-        if last_topic:
-            search_query = f"{last_topic} {question}"
-    
-    if should_search_curriculum(question, question_type):
+    if question_type['is_specific_lesson'] and question_type['lesson_request']:
+        lesson_info = question_type['lesson_request']['lesson_info']
+        enhanced_query = question_type['lesson_request']['search_query']
+        
+        print(f"🎯 تم اكتشاف طلب درس محدد: {lesson_info.get('lesson_name', 'غير محدد')}")
+        print(f"📚 الوحدة: {lesson_info.get('unit_name', 'غير محدد')}")
+        print(f"🔍 استعلام البحث المحسن: {enhanced_query}")
+        
+        # بحث محسن باستخدام معلومات الدرس
         if kb_manager and hasattr(kb_manager, 'db') and kb_manager.db:
             try:
-                context = retrieve_context(kb_manager, search_query)
+                context = retrieve_context(kb_manager, enhanced_query, k_results=5)  # نتائج أكثر للدروس المحددة
                 if context:
-                    search_status = "found"
+                    search_status = "found_specific_lesson"
+                    # إضافة سياق إضافي عن الدرس
+                    lesson_context = f"""
+=== معلومات الدرس المحدد ===
+الوحدة: {lesson_info.get('unit_name', 'غير محدد')}
+الدرس: {lesson_info.get('lesson_name', 'غير محدد')}
+المواضيع الرئيسية: {', '.join(lesson_info.get('keywords', []))}
+================================
+
+"""
+                    context = lesson_context + context
+                    print(f"✅ تم العثور على محتوى الدرس في المنهج")
                 else:
-                    search_status = "not_found"
+                    search_status = "lesson_not_found"
+                    print(f"❌ لم يتم العثور على محتوى الدرس في المنهج")
             except Exception as e:
                 search_status = "error"
-        else:
-            search_status = "no_kb"
-    
-    # إنشاء البرومبت مع القرار الذكي للرسم ومراعاة تاريخ المحادثة
+                print(f"خطأ في البحث: {e}")
+    else:
+        # البحث العادي للأسئلة غير المحددة
+        search_query = question
+        if question_type['has_references'] and chat_history:
+            analyzer = ChatHistoryAnalyzer()
+            last_topic = analyzer.extract_last_topic(chat_history)
+            if last_topic:
+                search_query = f"{last_topic} {question}"
+        
+        if should_search_curriculum(question, question_type):
+            if kb_manager and hasattr(kb_manager, 'db') and kb_manager.db:
+                try:
+                    context = retrieve_context(kb_manager, search_query)
+                    if context:
+                        search_status = "found"
+                    else:
+                        search_status = "not_found"
+                except Exception as e:
+                    search_status = "error"
+            else:
+                search_status = "no_kb"
+
+    # إنشاء البرومبت المحسن
     if prompt_engine:
-        specialized_prompt = create_smart_prompt(
+        specialized_prompt = create_enhanced_prompt(
             question=question,
             question_type=question_type,
             app_subject_key=subject_key,
@@ -972,7 +1051,7 @@ def process_user_question_improved(question: str, gemini_client, kb_manager, pro
         )
     else:
         specialized_prompt = f"أنت معلم للصف {grade_key} في مادة {subject_key}. اشرح للطفل: {question}"
-    
+
     # إرسال الطلب لـ Gemini
     if gemini_client:
         response = gemini_client.query_for_explanation_and_svg(specialized_prompt)
@@ -983,20 +1062,24 @@ def process_user_question_improved(question: str, gemini_client, kb_manager, pro
             "quality_scores": {},
             "quality_issues": ["المعلم الذكي غير متاح"]
         }
-    
-    # تطبيق القرار الذكي للرسم: إزالة الرسم إذا لم يقرر النظام أنه مطلوب
+
+    # تطبيق قرار الرسم الذكي: إزالة الرسم إذا لم يقرر النظام أنه مطلوب
     if not question_type['needs_drawing']:
         response['svg_code'] = None
-    
+
     return {
         'explanation': response.get("text_explanation", "عذرًا، لم أتمكن من إنتاج شرح مناسب."),
         'svg_code': response.get("svg_code"),
         'quality_scores': response.get("quality_scores", {}),
         'quality_issues': response.get("quality_issues", []),
         'search_status': search_status,
+        'lesson_info': question_type.get('lesson_request', {}).get('lesson_info') if question_type['is_specific_lesson'] else None,
         'drawing_decision': question_type.get('smart_decision_reason', 'غير محدد'),
         'drawing_confidence': question_type.get('drawing_confidence', 0),
         'question_analysis': {
+            'is_specific_lesson': question_type['is_specific_lesson'],
+            'lesson_name': lesson_info.get('lesson_name', '') if question_type['is_specific_lesson'] else '',
+            'unit_name': lesson_info.get('unit_name', '') if question_type['is_specific_lesson'] else '',
             'is_high_priority_visual': question_type.get('is_high_priority_visual', False),
             'is_medium_priority_visual': question_type.get('is_medium_priority_visual', False),
             'is_math_question': question_type.get('is_math_question', False),
@@ -1082,7 +1165,7 @@ def add_message(role: str, content: str, **kwargs):
     st.session_state.messages.append(message)
 
 def display_message(message: Dict, is_new: bool = False):
-    """عرض رسالة واحدة في المحادثة مع تحسين عرض SVG"""
+    """عرض رسالة واحدة في المحادثة مع تحسين عرض SVG ومعلومات الدرس"""
    
     if message["role"] == "user":
         with st.chat_message("user", avatar="👤"):
@@ -1093,6 +1176,16 @@ def display_message(message: Dict, is_new: bool = False):
     elif message["role"] == "assistant":
         with st.chat_message("assistant", avatar="🤖"):
             st.write("**المعلم الذكي:**")
+            
+            # عرض معلومات الدرس إذا كانت متوفرة
+            if 'lesson_info' in message and message['lesson_info']:
+                lesson_info = message['lesson_info']
+                st.info(f"""
+📚 **درس محدد من المنهج:**
+- **الوحدة:** {lesson_info.get('unit_name', 'غير محدد')}
+- **الدرس:** {lesson_info.get('lesson_name', 'غير محدد')}
+- **المواضيع:** {', '.join(lesson_info.get('keywords', []))}
+""")
            
             # عرض الشرح النصي
             if 'explanation' in message:
@@ -1169,7 +1262,7 @@ def display_message(message: Dict, is_new: bool = False):
                 st.caption(f"🕒 {message['timestamp']}")
 
 def main():
-    """الدالة الرئيسية المحسنة للتطبيق مع دعم Chat History Memory والنظام الذكي للرسم"""
+    """الدالة الرئيسية المحسنة للتطبيق مع دعم Chat History Memory والنظام الذكي للرسم وفهرس المواد التفاعلي"""
    
     # تهيئة حالة الجلسة
     initialize_session_state()
@@ -1219,6 +1312,8 @@ def main():
             if GEMINI_CLIENT_AVAILABLE and gemini_client:
                 st.write("اسألني أي سؤال وسأجيبك بشرح مبسط ورسم توضيحي عند الحاجة! 😊")
                 st.write("💡 **النظام الذكي للرسم:** سأقرر بنفسي متى أحتاج لرسم توضيحي لمساعدتك في الفهم!")
+                if CURRICULUM_INDEX_AVAILABLE:
+                    st.write("🎯 **الجديد:** يمكنك الآن أن تقول 'اشرح الدرس الثاني' وسأفهم أي درس تقصد!")
             else:
                 st.write("يمكنني الإجابة على أسئلتك النصية! 📚")
        
@@ -1238,14 +1333,24 @@ def main():
         with st.chat_message("assistant", avatar="🤖"):
             st.write("**المعلم الذكي:**")
            
-            with st.spinner("🤖 المعلم الذكي يفكر في الإجابة..."):
+            with st.spinner("🤖 المعلم الذكي يحلل السؤال ويبحث في المنهج..."):
                 try:
                     # استخدام المعالج المحسن مع تمرير تاريخ المحادثة
-                    response_data = process_user_question_improved(
+                    response_data = process_user_question_enhanced(
                         prompt, gemini_client, kb_manager, prompt_engine,
                         selected_grade, selected_subject, st.session_state.messages[:-1]  # تمرير كل الرسائل ما عدا السؤال الحالي
                     )
                    
+                    # عرض معلومات الدرس إذا كان محدداً
+                    if response_data.get('lesson_info'):
+                        lesson_info = response_data['lesson_info']
+                        st.info(f"""
+📚 **تم اكتشاف درس محدد:**
+- **الوحدة:** {lesson_info.get('unit_name', 'غير محدد')}
+- **الدرس:** {lesson_info.get('lesson_name', 'غير محدد')}
+- **المواضيع:** {', '.join(lesson_info.get('keywords', []))}
+""")
+                    
                     # عرض الشرح
                     st.write(response_data['explanation'])
                    
@@ -1316,6 +1421,17 @@ def main():
                         # عرض سبب عدم الرسم إذا لم يكن هناك رسم
                         if response_data.get('drawing_decision'):
                             st.caption(f"💭 **لماذا لا يوجد رسم؟** {response_data['drawing_decision']}")
+                    
+                    # عرض حالة البحث
+                    search_status = response_data.get('search_status', 'unknown')
+                    if search_status == "found_specific_lesson":
+                        st.success("✅ تم العثور على محتوى الدرس في المنهج الدراسي")
+                    elif search_status == "lesson_not_found":
+                        st.warning("⚠️ لم يتم العثور على محتوى مفصل للدرس في المنهج")
+                    elif search_status == "found":
+                        st.success("✅ تم العثور على معلومات ذات صلة في المنهج")
+                    elif search_status == "not_found":
+                        st.info("ℹ️ لم يتم العثور على معلومات في المنهج، تم الاعتماد على المعرفة العامة")
                    
                     # إضافة إجابة المساعد للمحادثة
                     add_message("assistant", "", **response_data)
@@ -1326,4 +1442,4 @@ def main():
                     add_message("assistant", error_msg)
 
 if __name__ == "__main__":
-    main()
+    main()# app.py - التطبيق الرئيسي للمعلم الذكي (مع ميزة Chat History Memory والنظام الذكي للرسم وفهرس المواد التفاعلي)
