@@ -1,4 +1,4 @@
-# app.py - التطبيق الرئيسي للمعلم الذكي (نسخة نظيفة ومبسطة)
+# app.py - التطبيق الرئيسي للمعلم الذكي (مع ميزة Chat History Memory)
 
 import os
 import sys
@@ -169,11 +169,126 @@ SUBJECT_FOLDERS = {
     'english': 'English'
 }
 
-# === دوال التصنيف الذكي للأسئلة ===
+# === دوال تحليل السياق والذاكرة ===
 
-def classify_question_type(question: str) -> Dict[str, any]:
-    """تصنيف نوع السؤال لتحديد كيفية التعامل معه"""
+class ChatHistoryAnalyzer:
+    """محلل تاريخ المحادثة لفهم السياق والمراجع"""
+    
+    def __init__(self):
+        # الضمائر والمراجع العربية
+        self.reference_patterns = [
+            r'\bه\b', r'\bها\b', r'\bهذا\b', r'\bهذه\b', r'\bذلك\b', r'\bتلك\b',
+            r'\bالموضوع\b', r'\bالدرس\b', r'\bالشرح\b', r'\bالمثال\b',
+            r'\bنفس الشيء\b', r'\bنفس الموضوع\b', r'\bما قلته\b', r'\bما شرحته\b',
+            r'\bالسؤال السابق\b', r'\bما سألت عنه\b', r'\bاللي قلته\b'
+        ]
+        
+        # كلمات طلب التوضيح أو التفصيل
+        self.clarification_patterns = [
+            r'اشرح.*بالرسم', r'ارسم.*لي', r'وضح.*بالرسم', r'بالصور', r'بالرسم',
+            r'مع رسم', r'رسم توضيحي', r'صورة', r'مثال بالرسم',
+            r'وضح أكثر', r'فصل أكثر', r'بالتفصيل', r'أريد تفاصيل',
+            r'explain.*with.*drawing', r'draw.*for.*me', r'show.*picture'
+        ]
+        
+        # كلمات الرفض أو التصحيح
+        self.correction_patterns = [
+            r'\bلا\b', r'\bليس\b', r'\bغير صحيح\b', r'\bخطأ\b',
+            r'لا أريد', r'لا أفهم', r'غير واضح', r'صعب',
+            r'\bno\b', r'\bnot\b', r'\bwrong\b'
+        ]
+
+    def has_references(self, question: str) -> bool:
+        """فحص ما إذا كان السؤال يحتوي على مراجع لمحادثات سابقة"""
+        question_lower = question.lower().strip()
+        return any(re.search(pattern, question_lower) for pattern in self.reference_patterns)
+    
+    def is_clarification_request(self, question: str) -> bool:
+        """فحص ما إذا كان السؤال طلب توضيح أو تفصيل"""
+        question_lower = question.lower().strip()
+        return any(re.search(pattern, question_lower) for pattern in self.clarification_patterns)
+    
+    def is_correction_request(self, question: str) -> bool:
+        """فحص ما إذا كان السؤال تصحيح أو رفض"""
+        question_lower = question.lower().strip()
+        return any(re.search(pattern, question_lower) for pattern in self.correction_patterns)
+    
+    def extract_last_topic(self, messages: List[Dict]) -> Optional[str]:
+        """استخراج آخر موضوع تم مناقشته"""
+        # البحث عن آخر سؤال من المستخدم وإجابة المعلم
+        user_messages = [msg for msg in messages if msg["role"] == "user"]
+        assistant_messages = [msg for msg in messages if msg["role"] == "assistant"]
+        
+        if user_messages:
+            last_user_question = user_messages[-1]["content"]
+            # استخراج الموضوع الرئيسي من السؤال
+            return self._extract_main_topic(last_user_question)
+        
+        return None
+    
+    def _extract_main_topic(self, question: str) -> str:
+        """استخراج الموضوع الرئيسي من السؤال"""
+        # قائمة المواضيع الشائعة والكلمات المفتاحية
+        topics_map = {
+            'الجمع': ['جمع', 'زائد', '+', 'إضافة', 'addition'],
+            'الطرح': ['طرح', 'ناقص', '-', 'subtraction'],
+            'الضرب': ['ضرب', 'مضروب', '×', '*', 'multiplication'],
+            'القسمة': ['قسمة', 'مقسوم', '÷', '/', 'division'],
+            'الحروف': ['حرف', 'حروف', 'أبجدية', 'letter', 'alphabet'],
+            'الأرقام': ['رقم', 'أرقام', 'عد', 'number', 'counting'],
+            'النبات': ['نبات', 'نباتات', 'شجرة', 'زهرة', 'plant', 'tree'],
+            'الحيوانات': ['حيوان', 'حيوانات', 'قطة', 'كلب', 'animal'],
+            'الأشكال': ['شكل', 'أشكال', 'مربع', 'دائرة', 'مثلث', 'shape'],
+            'الألوان': ['لون', 'ألوان', 'أحمر', 'أزرق', 'color']
+        }
+        
+        question_lower = question.lower()
+        for topic, keywords in topics_map.items():
+            if any(keyword in question_lower for keyword in keywords):
+                return topic
+        
+        # إذا لم نجد موضوع محدد، نحاول استخراج أول كلمة مفيدة
+        words = question.split()
+        meaningful_words = [word for word in words if len(word) > 2 and word not in ['في', 'من', 'إلى', 'عن', 'مع', 'على']]
+        if meaningful_words:
+            return meaningful_words[0]
+        
+        return "الموضوع السابق"
+    
+    def build_context_summary(self, messages: List[Dict], max_context_length: int = 500) -> str:
+        """بناء ملخص للسياق من المحادثات السابقة"""
+        if not messages:
+            return ""
+        
+        # أخذ آخر 4 رسائل كحد أقصى لتجنب الإطالة
+        recent_messages = messages[-4:] if len(messages) > 4 else messages
+        
+        context_parts = []
+        for msg in recent_messages:
+            if msg["role"] == "user":
+                context_parts.append(f"الطالب سأل: {msg['content']}")
+            elif msg["role"] == "assistant" and 'explanation' in msg:
+                # أخذ بداية الشرح فقط
+                explanation = msg['explanation'][:100] + "..." if len(msg['explanation']) > 100 else msg['explanation']
+                context_parts.append(f"المعلم أجاب: {explanation}")
+        
+        context_summary = "\n".join(context_parts)
+        
+        # قطع النص إذا كان طويلاً جداً
+        if len(context_summary) > max_context_length:
+            context_summary = context_summary[:max_context_length] + "..."
+        
+        return context_summary
+
+def classify_question_type(question: str, chat_history: List[Dict] = None) -> Dict[str, any]:
+    """تصنيف نوع السؤال مع مراعاة تاريخ المحادثة"""
     question_lower = question.lower().strip()
+    analyzer = ChatHistoryAnalyzer()
+    
+    # التحقق من وجود مراجع للمحادثات السابقة
+    has_references = analyzer.has_references(question)
+    is_clarification = analyzer.is_clarification_request(question)
+    is_correction = analyzer.is_correction_request(question)
     
     # أنماط التحيات والأسئلة الاجتماعية
     greetings_patterns = [
@@ -213,13 +328,21 @@ def classify_question_type(question: str) -> Dict[str, any]:
     drawing_required = needs_drawing or (is_educational and (is_math_question or 
                        any(word in question_lower for word in ['شكل', 'صورة', 'مثال', 'توضيح'])))
     
+    # إذا كان السؤال يحتوي على مراجع وطلب توضيح، فهو يحتاج رسم
+    if has_references and is_clarification:
+        drawing_required = True
+    
     return {
         'is_greeting': is_greeting,
         'is_educational': is_educational,
         'needs_curriculum_search': is_educational and not is_greeting,
         'needs_drawing': drawing_required and not is_greeting,
         'is_math_question': is_math_question,
-        'question_complexity': len(question.split())
+        'question_complexity': len(question.split()),
+        'has_references': has_references,
+        'is_clarification': is_clarification,
+        'is_correction': is_correction,
+        'needs_context': has_references or is_clarification or is_correction
     }
 
 def get_greeting_response(question: str, grade_key: str, subject_key: str) -> Dict[str, any]:
@@ -257,26 +380,48 @@ def should_search_curriculum(question: str, question_type: Dict[str, any]) -> bo
     if question_type['is_greeting']:
         return False
     
-    # لا تبحث للأسئلة القصيرة جداً (كلمة أو كلمتين)
-    if question_type['question_complexity'] <= 2 and not question_type['is_educational']:
+    # لا تبحث للأسئلة القصيرة جداً (كلمة أو كلمتين) إلا إذا كانت تحتوي على مراجع
+    if question_type['question_complexity'] <= 2 and not question_type['is_educational'] and not question_type['has_references']:
         return False
     
-    # ابحث فقط للأسئلة التعليمية
-    return question_type['needs_curriculum_search']
+    # ابحث للأسئلة التعليمية أو التي تحتوي على مراجع
+    return question_type['needs_curriculum_search'] or question_type['has_references']
 
 def create_smart_prompt(question: str, question_type: Dict[str, any], app_subject_key: str, 
-                       grade_key: str, retrieved_context_str: Optional[str], prompt_engine) -> str:
-    """إنشاء برومبت ذكي يراعي نوع السؤال"""
+                       grade_key: str, retrieved_context_str: Optional[str], prompt_engine, 
+                       chat_history: List[Dict] = None) -> str:
+    """إنشاء برومبت ذكي يراعي نوع السؤال وتاريخ المحادثة"""
+    
+    # بناء سياق المحادثة إذا كان هناك مراجع
+    conversation_context = ""
+    if question_type['needs_context'] and chat_history:
+        analyzer = ChatHistoryAnalyzer()
+        context_summary = analyzer.build_context_summary(chat_history)
+        last_topic = analyzer.extract_last_topic(chat_history)
+        
+        if context_summary:
+            conversation_context = f"""
+**سياق المحادثة السابقة:**
+{context_summary}
+
+**آخر موضوع تم مناقشته:** {last_topic if last_topic else 'غير محدد'}
+
+**ملاحظة مهمة:** السؤال الحالي "{question}" يبدو أنه يشير إلى الموضوع السابق. 
+يرجى فهم السياق والإجابة بناءً على ما تم مناقشته مسبقاً.
+إذا كان السؤال يطلب رسماً أو توضيحاً إضافياً للموضوع السابق، فقم بإنتاج رسم مناسب.
+"""
+    
     # الحصول على البرومبت الأساسي
     base_prompt = prompt_engine.get_specialized_prompt(
         question=question,
         app_subject_key=app_subject_key,
         grade_key=grade_key,
-        retrieved_context_str=retrieved_context_str
+        retrieved_context_str=retrieved_context_str,
+        conversation_context=conversation_context
     )
     
     # إضافة تعليمات خاصة بنوع السؤال
-    if not question_type['needs_drawing']:
+    if not question_type['needs_drawing'] and not question_type['is_clarification']:
         drawing_instruction = """
 **تعليمة خاصة للرسم:**
 هذا السؤال لا يحتاج إلى رسم توضيحي. يجب أن يكون `svg_code` هو `null` أو غير موجود في الاستجابة.
@@ -291,6 +436,14 @@ def create_smart_prompt(question: str, question_type: Dict[str, any], app_subjec
 قدم رداً ودوداً ومناسباً لطفل في المرحلة الابتدائية.
 """
         base_prompt += "\n" + greeting_instruction
+    
+    if question_type['has_references']:
+        reference_instruction = """
+**تعليمة خاصة للمراجع:**
+هذا السؤال يحتوي على مراجع لمحادثات سابقة. تأكد من فهم السياق السابق والإجابة بناءً عليه.
+استخدم المعلومات من سياق المحادثة السابقة لتقديم إجابة مترابطة ومفهومة.
+"""
+        base_prompt += "\n" + reference_instruction
     
     return base_prompt
 
@@ -654,10 +807,11 @@ def retrieve_context(kb_manager: Optional[any], query: str, k_results: int = 3) 
     except Exception as e:
         return ""
 
-def process_user_question_improved(question: str, gemini_client, kb_manager, prompt_engine, grade_key: str, subject_key: str):
-    """نسخة محسنة من معالج الأسئلة مع منطق ذكي للبحث والرسم"""
-    # تصنيف نوع السؤال
-    question_type = classify_question_type(question)
+def process_user_question_improved(question: str, gemini_client, kb_manager, prompt_engine, 
+                                 grade_key: str, subject_key: str, chat_history: List[Dict] = None):
+    """نسخة محسنة من معالج الأسئلة مع منطق ذكي للبحث والرسم ودعم تاريخ المحادثة"""
+    # تصنيف نوع السؤال مع مراعاة تاريخ المحادثة
+    question_type = classify_question_type(question, chat_history)
     
     # التعامل مع التحيات
     if question_type['is_greeting']:
@@ -667,10 +821,18 @@ def process_user_question_improved(question: str, gemini_client, kb_manager, pro
     context = ""
     search_status = "not_searched"
     
+    # إذا كان السؤال يحتوي على مراجع، استخدم آخر موضوع للبحث
+    search_query = question
+    if question_type['has_references'] and chat_history:
+        analyzer = ChatHistoryAnalyzer()
+        last_topic = analyzer.extract_last_topic(chat_history)
+        if last_topic:
+            search_query = f"{last_topic} {question}"
+    
     if should_search_curriculum(question, question_type):
         if kb_manager and hasattr(kb_manager, 'db') and kb_manager.db:
             try:
-                context = retrieve_context(kb_manager, question)
+                context = retrieve_context(kb_manager, search_query)
                 if context:
                     search_status = "found"
                 else:
@@ -680,7 +842,7 @@ def process_user_question_improved(question: str, gemini_client, kb_manager, pro
         else:
             search_status = "no_kb"
     
-    # إنشاء البرومبت مع تحديد ما إذا كان الرسم مطلوب
+    # إنشاء البرومبت مع تحديد ما إذا كان الرسم مطلوب ومراعاة تاريخ المحادثة
     if prompt_engine:
         specialized_prompt = create_smart_prompt(
             question=question,
@@ -688,7 +850,8 @@ def process_user_question_improved(question: str, gemini_client, kb_manager, pro
             app_subject_key=subject_key,
             grade_key=grade_key,
             retrieved_context_str=context if context else None,
-            prompt_engine=prompt_engine
+            prompt_engine=prompt_engine,
+            chat_history=chat_history
         )
     else:
         specialized_prompt = f"أنت معلم للصف {grade_key} في مادة {subject_key}. اشرح للطفل: {question}"
@@ -704,8 +867,8 @@ def process_user_question_improved(question: str, gemini_client, kb_manager, pro
             "quality_issues": ["المعلم الذكي غير متاح"]
         }
     
-    # إزالة الرسم إذا لم يكن مطلوباً
-    if not question_type['needs_drawing']:
+    # إزالة الرسم إذا لم يكن مطلوباً (إلا إذا كان طلب توضيح)
+    if not question_type['needs_drawing'] and not question_type['is_clarification']:
         response['svg_code'] = None
     
     return {
@@ -871,7 +1034,7 @@ def display_message(message: Dict, is_new: bool = False):
                 st.caption(f"🕒 {message['timestamp']}")
 
 def main():
-    """الدالة الرئيسية المحسنة للتطبيق"""
+    """الدالة الرئيسية المحسنة للتطبيق مع دعم Chat History Memory"""
    
     # تهيئة حالة الجلسة
     initialize_session_state()
@@ -935,16 +1098,16 @@ def main():
         add_message("user", prompt)
         display_message(st.session_state.messages[-1])
        
-        # معالجة السؤال وإنتاج الإجابة باستخدام المعالج المحسن
+        # معالجة السؤال وإنتاج الإجابة باستخدام المعالج المحسن مع تاريخ المحادثة
         with st.chat_message("assistant", avatar="🤖"):
             st.write("**المعلم الذكي:**")
            
             with st.spinner("🤖 المعلم الذكي يفكر في الإجابة..."):
                 try:
-                    # استخدام المعالج المحسن
+                    # استخدام المعالج المحسن مع تمرير تاريخ المحادثة
                     response_data = process_user_question_improved(
                         prompt, gemini_client, kb_manager, prompt_engine,
-                        selected_grade, selected_subject
+                        selected_grade, selected_subject, st.session_state.messages[:-1]  # تمرير كل الرسائل ما عدا السؤال الحالي
                     )
                    
                     # عرض الشرح
