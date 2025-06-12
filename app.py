@@ -1,4 +1,4 @@
-# app.py - التطبيق الرئيسي للمعلم الذكي (محسن مع إصلاحات المشاكل)
+# app.py - التطبيق الرئيسي للمعلم الذكي (نسخة نظيفة ومبسطة)
 
 import os
 import sys
@@ -44,7 +44,6 @@ try:
         try:
             __import__('pysqlite3')
             sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-            print("✅ Successfully replaced sqlite3 with pysqlite3")
         except ImportError:
             print("⚠️ pysqlite3 not available, continuing with system SQLite")
     else:
@@ -53,47 +52,32 @@ try:
 except Exception as e:
     print(f"Warning: SQLite fix failed: {e}")
 
-# تحميل الوحدات المخصصة بأمان
-print("🔄 جاري تحميل وحدات المعلم الذكي...")
-
+# تحميل الوحدات المخصصة بأمان (بصمت)
 try:
-    print("📦 محاولة استيراد GeminiClientVertexAI...")
     from tutor_ai.gemini_client import GeminiClientVertexAI
     GEMINI_CLIENT_AVAILABLE = True
-    print("✅ تم تحميل GeminiClientVertexAI بنجاح")
 except Exception as e:
-    print(f"❌ فشل تحميل Gemini client: {e}")
     GEMINI_CLIENT_AVAILABLE = False
 
 try:
-    print("📦 محاولة استيراد UnifiedPromptEngine...")
     from tutor_ai.prompt_engineering import UnifiedPromptEngine
     PROMPT_ENGINE_AVAILABLE = True
-    print("✅ تم تحميل UnifiedPromptEngine بنجاح")
 except Exception as e:
-    print(f"❌ فشل تحميل Prompt engine: {e}")
     PROMPT_ENGINE_AVAILABLE = False
 
 try:
-    print("📦 محاولة استيراد KnowledgeBaseManager...")
     from tutor_ai.knowledge_base_manager import KnowledgeBaseManager, check_rag_requirements
     KB_MANAGER_AVAILABLE = True
-    print("✅ تم تحميل KnowledgeBaseManager بنجاح")
 except Exception as e:
-    print(f"❌ فشل تحميل Knowledge base manager: {e}")
     KB_MANAGER_AVAILABLE = False
     def check_rag_requirements():
         return {"Status": False}
 
 try:
-    print("📦 محاولة استيراد save_svg_content_to_file...")
     from tutor_ai.code_executor import save_svg_content_to_file
     CODE_EXECUTOR_AVAILABLE = True
-    print("✅ تم تحميل save_svg_content_to_file بنجاح")
 except Exception as e:
-    print(f"❌ فشل تحميل Code executor: {e}")
     CODE_EXECUTOR_AVAILABLE = False
-    # دالة احتياطية
     def save_svg_content_to_file(svg_content: str, path: str) -> bool:
         try:
             with open(path, 'w', encoding='utf-8') as f:
@@ -102,23 +86,16 @@ except Exception as e:
         except:
             return False
 
-print("🏁 انتهى تحميل الوحدات:")
-print(f"   - Gemini Client: {'✅' if GEMINI_CLIENT_AVAILABLE else '❌'}")
-print(f"   - Prompt Engine: {'✅' if PROMPT_ENGINE_AVAILABLE else '❌'}")
-print(f"   - Knowledge Base: {'✅' if KB_MANAGER_AVAILABLE else '❌'}")
-print(f"   - Code Executor: {'✅' if CODE_EXECUTOR_AVAILABLE else '❌'}")
-
 # إعداد صفحة Streamlit
 st.set_page_config(
-    page_title="المعلم الذكي السعودي",
+    page_title="المعلم الذكي",
     page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # متغيرات التطبيق العامة
-APP_TITLE = "🤖 المعلم الذكي السعودي المحسن"
-VERSION = "3.1 - Smart Edition"
+APP_TITLE = "🤖 المعلم الذكي"
 
 # إعدادات الصفوف والمواد
 GRADE_SUBJECTS = {
@@ -486,7 +463,7 @@ def check_knowledge_base_detailed_status(project_id: str, location: str) -> Dict
 
 @st.cache_data
 def build_knowledge_bases_with_error_handling(project_id: str, location: str, force_rebuild: bool = False) -> Dict[str, Any]:
-    """بناء قواعد المعرفة مع معالجة تفصيلية للأخطاء"""
+    """بناء قواعد المعرفة مع معالجة تفصيلية للأخطاء (بصمت)"""
     status = check_knowledge_base_detailed_status(project_id, location)
     
     if not status["available"]:
@@ -533,18 +510,10 @@ def build_knowledge_bases_with_error_handling(project_id: str, location: str, fo
             "empty_docs": status["empty_docs"]
         }
     
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
     for i, (grade_key, subject_key, subject_folder) in enumerate(subjects_to_build):
-        current_progress = (i + 1) / total_subjects
-        
         grade_name = GRADE_SUBJECTS[grade_key]['name']
         subject_name = GRADE_SUBJECTS[grade_key]['subjects'][subject_key]
         collection_name = f"{grade_key}_{subject_folder.replace(' ', '_').lower()}_coll"
-        
-        status_text.text(f"جاري بناء قاعدة المعرفة ({i+1}/{total_subjects}): {grade_name} - {subject_name}")
-        progress_bar.progress(current_progress)
         
         db_path = Path("chroma_dbs") / collection_name
         if db_path.exists() and not force_rebuild:
@@ -624,13 +593,6 @@ def build_knowledge_bases_with_error_handling(project_id: str, location: str, fo
             })
             results["detailed_errors"].append(error_msg)
     
-    progress_bar.progress(1.0)
-    status_text.text("اكتمل بناء قواعد المعرفة!")
-    
-    time.sleep(2)
-    progress_bar.empty()
-    status_text.empty()
-    
     return results
 
 @st.cache_resource
@@ -649,7 +611,6 @@ def initialize_gemini_client(project_id: str, location: str):
             return client
         return None
     except Exception as e:
-        st.error(f"❌ فشل تهيئة عميل Gemini: {e}")
         return None
 
 @st.cache_resource
@@ -668,7 +629,6 @@ def initialize_knowledge_base(project_id: str, location: str, grade_key: str, su
         )
         return kb_manager
     except Exception as e:
-        print(f"❌ فشل تهيئة قاعدة المعرفة: {e}")
         return None
 
 @st.cache_resource
@@ -692,7 +652,6 @@ def retrieve_context(kb_manager: Optional[any], query: str, k_results: int = 3) 
             return "\n\n".join(context_parts)
         return ""
     except Exception as e:
-        print(f"⚠️ خطأ في استرجاع السياق: {e}")
         return ""
 
 def process_user_question_improved(question: str, gemini_client, kb_manager, prompt_engine, grade_key: str, subject_key: str):
@@ -711,14 +670,12 @@ def process_user_question_improved(question: str, gemini_client, kb_manager, pro
     if should_search_curriculum(question, question_type):
         if kb_manager and hasattr(kb_manager, 'db') and kb_manager.db:
             try:
-                with st.spinner("🔍 البحث في المنهج الدراسي..."):
-                    context = retrieve_context(kb_manager, question)
-                    if context:
-                        search_status = "found"
-                    else:
-                        search_status = "not_found"
+                context = retrieve_context(kb_manager, question)
+                if context:
+                    search_status = "found"
+                else:
+                    search_status = "not_found"
             except Exception as e:
-                print(f"خطأ في البحث: {e}")
                 search_status = "error"
         else:
             search_status = "no_kb"
@@ -776,47 +733,10 @@ def initialize_session_state():
     if 'knowledge_bases_built' not in st.session_state:
         st.session_state.knowledge_bases_built = False
 
-def display_knowledge_base_diagnostics():
-    """عرض تشخيص مفصل لحالة قواعد المعرفة"""
-    project_id, location, _ = load_environment_variables_silently()
-    if not project_id:
-        st.error("❌ لا توجد إعدادات Google Cloud")
-        return
-    
-    with st.expander("🔍 تشخيص مفصل لقواعد المعرفة"):
-        status = check_knowledge_base_detailed_status(project_id, location)
-        
-        # إحصائيات عامة
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("المتوقع", status["total_expected"])
-        with col2:
-            st.metric("ملفات موجودة", status["total_found_docs"])
-        with col3:
-            st.metric("قواعد بيانات", status["total_found_dbs"])
-        with col4:
-            success_rate = round((status["total_found_dbs"] / status["total_expected"]) * 100) if status["total_expected"] > 0 else 0
-            st.metric("معدل النجاح", f"{success_rate}%")
-        
-        # تفاصيل المشاكل
-        if status["missing_docs"]:
-            st.error(f"❌ مجلدات مفقودة ({len(status['missing_docs'])}): {', '.join(status['missing_docs'][:5])}{'...' if len(status['missing_docs']) > 5 else ''}")
-        
-        if status["empty_docs"]:
-            st.warning(f"⚠️ مجلدات فارغة ({len(status['empty_docs'])}): {', '.join(status['empty_docs'][:5])}{'...' if len(status['empty_docs']) > 5 else ''}")
-        
-        if status["missing_dbs"]:
-            st.info(f"ℹ️ قواعد بيانات مفقودة ({len(status['missing_dbs'])}): {', '.join(status['missing_dbs'][:5])}{'...' if len(status['missing_dbs']) > 5 else ''}")
-        
-        if status["build_errors"]:
-            st.error("❌ أخطاء البناء:")
-            for error in status["build_errors"][:3]:
-                st.text(f"  • {error}")
-
 def display_sidebar():
-    """عرض الشريط الجانبي"""
+    """عرض الشريط الجانبي المبسط"""
     with st.sidebar:
-        st.title("⚙️ إعدادات المعلم الذكي")
+        st.title("إعدادات التعلم")
        
         # اختيار الصف
         grade_options = list(GRADE_SUBJECTS.keys())
@@ -849,67 +769,15 @@ def display_sidebar():
         )
         selected_subject = subject_options[selected_subject_idx]
        
-        # تحديث session state
-        if st.session_state.selected_grade != selected_grade or st.session_state.selected_subject != selected_subject:
+        # تحديث session state وحذف المحادثة عند التغيير
+        if (st.session_state.selected_grade != selected_grade or 
+            st.session_state.selected_subject != selected_subject):
+            # حذف المحادثة السابقة عند تغيير الصف أو المادة
+            st.session_state.messages = []
+            st.session_state.conversation_started = False
             st.session_state.selected_grade = selected_grade
             st.session_state.selected_subject = selected_subject
             st.rerun()
-       
-        st.divider()
-       
-        # أزرار التحكم في المحادثة
-        st.subheader("💬 التحكم في المحادثة")
-       
-        col1, col2 = st.columns(2)
-       
-        with col1:
-            if st.button("🆕 محادثة جديدة", use_container_width=True):
-                st.session_state.messages = []
-                st.session_state.conversation_started = False
-                st.rerun()
-       
-        with col2:
-            if st.button("📤 تصدير المحادثة", use_container_width=True):
-                export_conversation()
-       
-        # إحصائيات المحادثة
-        if st.session_state.messages:
-            st.subheader("📊 إحصائيات المحادثة")
-            user_messages = len([msg for msg in st.session_state.messages if msg["role"] == "user"])
-            assistant_messages = len([msg for msg in st.session_state.messages if msg["role"] == "assistant"])
-           
-            st.metric("عدد أسئلتك", user_messages)
-            st.metric("عدد إجابات المعلم", assistant_messages)
-       
-        st.divider()
-       
-        # عرض معلومات النظام
-        st.subheader("ℹ️ حالة النظام")
-        
-        status_items = [
-            ("Gemini Client", GEMINI_CLIENT_AVAILABLE),
-            ("Prompt Engine", PROMPT_ENGINE_AVAILABLE),
-            ("Knowledge Base", KB_MANAGER_AVAILABLE),
-            ("Code Executor", CODE_EXECUTOR_AVAILABLE)
-        ]
-        
-        for name, available in status_items:
-            status = "✅" if available else "❌"
-            st.write(f"{status} {name}")
-            
-        # عرض تشخيص قواعد المعرفة
-        if st.button("🔍 تشخيص مفصل"):
-            display_knowledge_base_diagnostics()
-       
-        if KB_MANAGER_AVAILABLE and st.button("🔍 فحص متطلبات RAG"):
-            with st.spinner("جاري فحص المتطلبات..."):
-                try:
-                    requirements = check_rag_requirements()
-                    for req, available in requirements.items():
-                        status = "✅" if available else "❌"
-                        st.write(f"{status} {req}")
-                except Exception as e:
-                    st.error(f"خطأ في فحص المتطلبات: {e}")
        
         return selected_grade, selected_subject
 
@@ -924,38 +792,8 @@ def add_message(role: str, content: str, **kwargs):
     }
     st.session_state.messages.append(message)
 
-def export_conversation():
-    """تصدير المحادثة إلى نص"""
-    if not st.session_state.messages:
-        st.warning("لا توجد محادثة للتصدير")
-        return
-   
-    conversation_text = f"محادثة مع المعلم الذكي السعودي المحسن\n"
-    conversation_text += f"الصف: {GRADE_SUBJECTS[st.session_state.selected_grade]['name']}\n"
-    conversation_text += f"المادة: {GRADE_SUBJECTS[st.session_state.selected_grade]['subjects'][st.session_state.selected_subject]}\n"
-    conversation_text += f"التاريخ: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-    conversation_text += "="*50 + "\n\n"
-   
-    for msg in st.session_state.messages:
-        if msg["role"] == "user":
-            conversation_text += f"👤 أنت ({msg['timestamp']}):\n{msg['content']}\n\n"
-        elif msg["role"] == "assistant":
-            conversation_text += f"🤖 المعلم الذكي ({msg['timestamp']}):\n"
-            if 'explanation' in msg:
-                conversation_text += f"{msg['explanation']}\n"
-            if 'svg_code' in msg and msg['svg_code']:
-                conversation_text += "[تم إنتاج رسم توضيحي SVG]\n"
-            conversation_text += "\n"
-   
-    st.download_button(
-        label="📄 تحميل المحادثة كنص",
-        data=conversation_text,
-        file_name=f"محادثة_المعلم_الذكي_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-        mime="text/plain"
-    )
-
 def display_message(message: Dict, is_new: bool = False):
-    """عرض رسالة واحدة في المحادثة"""
+    """عرض رسالة واحدة في المحادثة مع تحسين عرض SVG"""
    
     if message["role"] == "user":
         with st.chat_message("user", avatar="👤"):
@@ -967,66 +805,66 @@ def display_message(message: Dict, is_new: bool = False):
         with st.chat_message("assistant", avatar="🤖"):
             st.write("**المعلم الذكي:**")
            
-            # عرض حالة البحث إذا كانت موجودة
-            if 'search_status' in message:
-                if message['search_status'] == 'found':
-                    st.success("✅ تم العثور على معلومات ذات صلة من المنهج")
-                elif message['search_status'] == 'not_found':
-                    st.info("ℹ️ لم يتم العثور على معلومات في المنهج، سيتم الاعتماد على المعرفة العامة")
-                elif message['search_status'] == 'greeting':
-                    st.info("👋 تحية ودودة")
-                elif message['search_status'] == 'not_searched':
-                    st.info("ℹ️ لم يتم البحث في المنهج - السؤال لا يتطلب ذلك")
-           
             # عرض الشرح النصي
             if 'explanation' in message:
                 st.write(message['explanation'])
            
-            # عرض الرسم SVG إذا كان موجوداً
+            # عرض الرسم SVG إذا كان موجوداً مع تحسين العرض
             if 'svg_code' in message and message['svg_code']:
                 st.subheader("🎨 الرسم التوضيحي:")
                
-                col1, col2 = st.columns([3, 1])
+                col1, col2 = st.columns([4, 1])
                
                 with col1:
                     try:
+                        # تحسين عرض SVG ليكون scalable ومناسب للحاوية
                         st.components.v1.html(
                             f"""
-                            <div style="display: flex; justify-content: center; align-items: center;
-                                        background-color: white; padding: 20px; border-radius: 10px;
-                                        border: 2px solid #e0e0e0;">
-                                {message['svg_code']}
+                            <div style="
+                                display: flex; 
+                                justify-content: center; 
+                                align-items: center;
+                                background-color: white; 
+                                padding: 20px; 
+                                border-radius: 10px;
+                                border: 2px solid #e0e0e0;
+                                width: 100%;
+                                height: 400px;
+                                overflow: hidden;
+                            ">
+                                <div style="
+                                    width: 100%; 
+                                    height: 100%; 
+                                    display: flex; 
+                                    justify-content: center; 
+                                    align-items: center;
+                                ">
+                                    <svg style="
+                                        max-width: 100%; 
+                                        max-height: 100%; 
+                                        width: auto; 
+                                        height: auto;
+                                    " viewBox="0 0 700 500" preserveAspectRatio="xMidYMid meet">
+                                        {message['svg_code'].replace('<svg', '').replace('</svg>', '').replace('width="700"', '').replace('height="500"', '')}
+                                    </svg>
+                                </div>
                             </div>
                             """,
-                            height=400
+                            height=450
                         )
                     except Exception as e:
                         st.error(f"❌ خطأ في عرض الرسم: {e}")
                
                 with col2:
-                    st.write("💾 **خيارات الحفظ:**")
+                    st.write("💾 **تحميل:**")
                    
                     st.download_button(
-                        label="⬇️ تحميل SVG",
+                        label="⬇️ SVG",
                         data=message['svg_code'],
                         file_name=f"رسم_توضيحي_{datetime.now().strftime('%Y%m%d_%H%M%S')}.svg",
                         mime="image/svg+xml",
                         key=f"download_svg_{message.get('id', 'unknown')}"
                     )
-           
-            # عرض معلومات الجودة إذا كانت متاحة
-            if 'quality_scores' in message and message['quality_scores']:
-                with st.expander("📊 تقييم جودة الإجابة"):
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("جودة الشرح", f"{message['quality_scores'].get('explanation', 0)}%")
-                    with col2:
-                        st.metric("جودة الرسم", f"{message['quality_scores'].get('svg', 0)}%")
-                   
-                    if 'quality_issues' in message and message['quality_issues']:
-                        st.write("**ملاحظات للتحسين:**")
-                        for issue in message['quality_issues']:
-                            st.write(f"• {issue}")
            
             # عرض الوقت
             if 'timestamp' in message:
@@ -1039,7 +877,6 @@ def main():
     initialize_session_state()
    
     st.title(APP_TITLE)
-    st.markdown(f"**الإصدار:** {VERSION} | **مخصص للمرحلة الابتدائية**")
    
     # تحميل متغيرات البيئة بصمت
     project_id, location, credentials_path = load_environment_variables_silently()
@@ -1049,78 +886,32 @@ def main():
         st.info("💡 يرجى إضافة المتغيرات المطلوبة في إعدادات التطبيق")
         st.stop()
     
-    # فحص وبناء قواعد المعرفة إذا لزم الأمر
+    # فحص وبناء قواعد المعرفة إذا لزم الأمر (بصمت)
     if not st.session_state.knowledge_bases_built:
-        st.info("🔄 جاري فحص قواعد المعرفة...")
-        
         kb_status = check_knowledge_base_detailed_status(project_id, location)
         
         if not kb_status["docs_exist"] or kb_status["total_found_docs"] == 0:
-            st.warning("⚠️ لا توجد ملفات منهج دراسي. سيعمل المعلم الذكي بالمعرفة العامة فقط.")
-            st.info("💡 لإضافة المنهج، ارفع مجلد 'knowledge_base_docs' مع ملفات المنهج")
             st.session_state.knowledge_bases_built = True
         elif len(kb_status["missing_dbs"]) > 0:
-            missing_count = len(kb_status["missing_dbs"])
-            total_count = kb_status["total_expected"]
-            
-            st.warning(f"⚠️ {missing_count} من أصل {total_count} قاعدة بيانات مفقودة. جاري البناء التلقائي...")
-            
-            if kb_status["empty_docs"]:
-                st.info(f"ℹ️ {len(kb_status['empty_docs'])} مجلد فارغ سيتم تجاهله")
-            
-            with st.spinner("🏗️ جاري بناء قواعد المعرفة... قد يستغرق هذا بضع دقائق في المرة الأولى."):
-                build_result = build_knowledge_bases_with_error_handling(project_id, location)
-                
-                if build_result["success"]:
-                    built_count = len(build_result["built_databases"])
-                    failed_count = len(build_result["failed_databases"])
-                    skipped_count = len(build_result["skipped_databases"])
-                    
-                    if built_count > 0:
-                        st.success(f"✅ تم بناء {built_count} قاعدة معرفة بنجاح!")
-                    
-                    if skipped_count > 0:
-                        st.info(f"ℹ️ تم تجاهل {skipped_count} قاعدة موجودة مسبقاً")
-                    
-                    if failed_count > 0:
-                        st.warning(f"⚠️ فشل بناء {failed_count} قاعدة معرفة")
-                        
-                        with st.expander("📋 تفاصيل الأخطاء"):
-                            for error in build_result["detailed_errors"][:10]:
-                                st.text(f"• {error}")
-                            
-                            st.info("💡 نصائح لحل المشاكل:")
-                            st.write("- تأكد من وجود ملفات المنهج في المجلدات الصحيحة")
-                            st.write("- تحقق من صلاحيات Google Cloud")
-                            st.write("- راجع اتصال الإنترنت")
-                else:
-                    st.error(f"❌ {build_result['message']}")
-                    if "suggestion" in build_result:
-                        st.info(f"💡 {build_result['suggestion']}")
-            
+            # بناء صامت لقواعد المعرفة
+            build_result = build_knowledge_bases_with_error_handling(project_id, location)
             st.session_state.knowledge_bases_built = True
         else:
-            st.success(f"✅ قواعد المعرفة جاهزة! ({kb_status['total_found_dbs']}/{kb_status['total_expected']})")
             st.session_state.knowledge_bases_built = True
    
     # عرض الشريط الجانبي
     selected_grade, selected_subject = display_sidebar()
    
-    # تهيئة المكونات
-    with st.spinner("🔄 جاري تهيئة المعلم الذكي..."):
-        gemini_client = None
-        if GEMINI_CLIENT_AVAILABLE:
-            gemini_client = initialize_gemini_client(project_id, location)
-            if not gemini_client:
-                st.warning("⚠️ فشل تهيئة عميل Gemini - سيعمل التطبيق بوضع محدود")
-        else:
-            st.warning("⚠️ عميل Gemini غير متاح - سيعمل التطبيق بوضع محدود")
-       
-        kb_manager = None
-        if KB_MANAGER_AVAILABLE:
-            kb_manager = initialize_knowledge_base(project_id, location, selected_grade, selected_subject)
-        
-        prompt_engine = initialize_prompt_engine()
+    # تهيئة المكونات بصمت
+    gemini_client = None
+    if GEMINI_CLIENT_AVAILABLE:
+        gemini_client = initialize_gemini_client(project_id, location)
+    
+    kb_manager = None
+    if KB_MANAGER_AVAILABLE:
+        kb_manager = initialize_knowledge_base(project_id, location, selected_grade, selected_subject)
+    
+    prompt_engine = initialize_prompt_engine()
    
     # عرض رسالة الترحيب إذا لم تبدأ المحادثة
     if not st.session_state.conversation_started:
@@ -1129,10 +920,8 @@ def main():
             st.write(f"أهلاً وسهلاً! أنا معلمك الذكي للصف {GRADE_SUBJECTS[selected_grade]['name']} في مادة {GRADE_SUBJECTS[selected_grade]['subjects'][selected_subject]}.")
             if GEMINI_CLIENT_AVAILABLE and gemini_client:
                 st.write("اسألني أي سؤال وسأجيبك بشرح مبسط ورسم توضيحي عند الحاجة! 😊")
-            elif PROMPT_ENGINE_AVAILABLE:
-                st.write("حالياً أعمل بوضع محدود (بدون رسوم توضيحية). يمكنني الإجابة على أسئلتك النصية! 📚")
             else:
-                st.warning("⚠️ النظام يعمل بوضع محدود جداً. بعض الميزات غير متاحة حالياً.")
+                st.write("يمكنني الإجابة على أسئلتك النصية! 📚")
        
         st.session_state.conversation_started = True
    
@@ -1158,58 +947,64 @@ def main():
                         selected_grade, selected_subject
                     )
                    
-                    # عرض حالة البحث
-                    if response_data['search_status'] == 'found':
-                        st.success("✅ تم العثور على معلومات ذات صلة من المنهج")
-                    elif response_data['search_status'] == 'not_found':
-                        st.info("ℹ️ لم يتم العثور على معلومات في المنهج، سيتم الاعتماد على المعرفة العامة")
-                    elif response_data['search_status'] == 'greeting':
-                        st.info("👋 تحية ودودة")
-                    elif response_data['search_status'] == 'not_searched':
-                        st.info("ℹ️ لم يتم البحث في المنهج - السؤال لا يتطلب ذلك")
-                   
                     # عرض الشرح
                     st.write(response_data['explanation'])
                    
-                    # عرض الرسم إذا كان موجوداً
+                    # عرض الرسم إذا كان موجوداً مع التحسين الجديد
                     if response_data['svg_code']:
                         st.subheader("🎨 الرسم التوضيحي:")
                        
-                        col1, col2 = st.columns([3, 1])
+                        col1, col2 = st.columns([4, 1])
                        
                         with col1:
                             try:
+                                # تحسين عرض SVG ليكون scalable ومناسب للحاوية
                                 st.components.v1.html(
                                     f"""
-                                    <div style="display: flex; justify-content: center; align-items: center;
-                                                background-color: white; padding: 20px; border-radius: 10px;
-                                                border: 2px solid #e0e0e0;">
-                                        {response_data['svg_code']}
+                                    <div style="
+                                        display: flex; 
+                                        justify-content: center; 
+                                        align-items: center;
+                                        background-color: white; 
+                                        padding: 20px; 
+                                        border-radius: 10px;
+                                        border: 2px solid #e0e0e0;
+                                        width: 100%;
+                                        height: 400px;
+                                        overflow: hidden;
+                                    ">
+                                        <div style="
+                                            width: 100%; 
+                                            height: 100%; 
+                                            display: flex; 
+                                            justify-content: center; 
+                                            align-items: center;
+                                        ">
+                                            <svg style="
+                                                max-width: 100%; 
+                                                max-height: 100%; 
+                                                width: auto; 
+                                                height: auto;
+                                            " viewBox="0 0 700 500" preserveAspectRatio="xMidYMid meet">
+                                                {response_data['svg_code'].replace('<svg', '').replace('</svg>', '').replace('width="700"', '').replace('height="500"', '')}
+                                            </svg>
+                                        </div>
                                     </div>
                                     """,
-                                    height=400
+                                    height=450
                                 )
                             except Exception as e:
                                 st.error(f"❌ خطأ في عرض الرسم: {e}")
                        
                         with col2:
-                            st.write("💾 **خيارات الحفظ:**")
+                            st.write("💾 **تحميل:**")
                             st.download_button(
-                                label="⬇️ تحميل SVG",
+                                label="⬇️ SVG",
                                 data=response_data['svg_code'],
                                 file_name=f"رسم_توضيحي_{datetime.now().strftime('%Y%m%d_%H%M%S')}.svg",
                                 mime="image/svg+xml",
                                 key=f"download_svg_new"
                             )
-                   
-                    # عرض معلومات الجودة
-                    if response_data['quality_scores']:
-                        with st.expander("📊 تقييم جودة الإجابة"):
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.metric("جودة الشرح", f"{response_data['quality_scores'].get('explanation', 0)}%")
-                            with col2:
-                                st.metric("جودة الرسم", f"{response_data['quality_scores'].get('svg', 0)}%")
                    
                     # إضافة إجابة المساعد للمحادثة
                     add_message("assistant", "", **response_data)
@@ -1218,43 +1013,6 @@ def main():
                     error_msg = f"❌ حدث خطأ: {e}"
                     st.error(error_msg)
                     add_message("assistant", error_msg)
-   
-    # قسم المساعدة المحدث
-    with st.expander("❓ كيفية استخدام المعلم الذكي المحسن"):
-        st.markdown("""
-        ### 🎯 نصائح للحصول على أفضل إجابة:
-       
-        **للتحيات والمحادثة:**
-        - "السلام عليكم" ← رد مناسب بدون بحث أو رسم
-        - "مرحباً" ← ترحيب ودود
-        - "كيف حالك؟" ← محادثة اجتماعية
-       
-        **للأسئلة التعليمية:**
-        - "علمني حرف الألف مع أمثلة" ← بحث في المنهج + رسم
-        - "اشرح لي جمع 2+3" ← رسم توضيحي للعملية
-        - "ما هي أجزاء النبات؟" ← رسم علمي مع التسميات
-       
-        **للأسئلة البسيطة:**
-        - "ما معنى كلمة سعادة؟" ← شرح بدون رسم
-        - "متى نقول صباح الخير؟" ← إجابة مباشرة
-       
-        ### 🧠 الذكاء الاصطناعي للمعلم:
-        - **يميز** بين التحيات والأسئلة التعليمية
-        - **يبحث** فقط في المنهج المختار عند الحاجة
-        - **يرسم** فقط عندما يساعد الرسم في الفهم
-        - **يتذكر** محادثتك ويبني عليها
-        """)
-   
-    # معلومات إضافية في التذييل
-    st.divider()
-    st.markdown("""
-    <div style='text-align: center; color: gray; font-size: 0.8em;'>
-    💡 المعلم الذكي السعودي المحسن - مدعوم بتقنية Gemini AI و RAG الذكي<br>
-    🎯 بحث ذكي في المنهج المختار فقط • رسم عند الحاجة فقط • تفاعل طبيعي مع التحيات<br>
-    🔐 آمن ومحمي - جميع البيانات الحساسة في Streamlit Secrets<br>
-    💬 يحفظ تاريخ محادثتك ويتذكر الأسئلة السابقة
-    </div>
-    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
