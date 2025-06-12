@@ -1,51 +1,41 @@
-requirements.txt - محدث لحل مشاكل protobuf والمكتبات
-Streamlit Framework
+# requirements.txt - محدث لحل مشاكل protobuf والمكتبات
 
+# Streamlit Framework
 streamlit>=1.28.0
 
-إصلاح مشكلة protobuf
-
+# إصلاح مشكلة protobuf
 protobuf>=3.19.0,<5.0.0
 
-Google Cloud & Vertex AI
-
+# Google Cloud & Vertex AI
 google-cloud-aiplatform>=1.38.0
 vertexai>=1.38.0
 
-LangChain Core
-
+# LangChain Core
 langchain>=0.1.0
 langchain-core>=0.1.0
 langchain-community>=0.0.10
 
-LangChain Google Integration
-
+# LangChain Google Integration
 langchain-google-vertexai>=0.1.0
 
-ChromaDB
-
+# ChromaDB
 chromadb>=0.4.18
 langchain-chroma>=0.1.0
 
-Document Processing
-
+# Document Processing
 unstructured>=0.11.0
 docx2txt>=0.8
 python-docx>=1.1.0
 
-Text Processing
-
+# Text Processing
 python-dotenv>=1.0.0
 
-SQLite upgrade
-
+# SQLite upgrade
 pysqlite3-binary>=0.5.0
 
-Optional but recommended
-
+# Optional but recommended
 numpy>=1.24.0
 pandas>=2.0.0
 
-Error handling and retries
-
+# Error handling and retries
 tenacity>=8.2.0
