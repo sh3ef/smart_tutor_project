@@ -1,10 +1,10 @@
-# tutor_ai/prompt_engineering.py
+# tutor_ai/prompt_engineering.py - مع دعم Chat History Memory
 import re
 from typing import Dict, List, Tuple, Optional
 
 
 class UnifiedPromptEngine:
-    """محرك البرومبت الموحد والمتطور - يجمع بين التخصص بالمادة والصف الدراسي، مع دعم السياق المسترجع (RAG)"""
+    """محرك البرومبت الموحد والمتطور - يجمع بين التخصص بالمادة والصف الدراسي، مع دعم السياق المسترجع (RAG) وذاكرة المحادثة"""
    
     def __init__(self):
         self.grade_info = {
@@ -68,14 +68,17 @@ class UnifiedPromptEngine:
         }
 
 
-    def get_specialized_prompt(self, question: str, app_subject_key: str, grade_key: str, retrieved_context_str: Optional[str] = None) -> str:
+    def get_specialized_prompt(self, question: str, app_subject_key: str, grade_key: str, 
+                             retrieved_context_str: Optional[str] = None, 
+                             conversation_context: Optional[str] = None) -> str:
         """
-        الدالة الرئيسية لإنشاء برومبت مخصص.
+        الدالة الرئيسية لإنشاء برومبت مخصص مع دعم تاريخ المحادثة.
         Args:
             question (str): سؤال المستخدم.
             app_subject_key (str): مفتاح المادة كما هو مستخدم في التطبيق (e.g., 'arabic', 'math').
             grade_key (str): مفتاح الصف (e.g., 'grade_1', 'grade_2').
             retrieved_context_str (Optional[str]): السياق النصي المسترجع من قاعدة المعرفة.
+            conversation_context (Optional[str]): سياق المحادثة السابقة.
         """
         grade_details = self.grade_info.get(grade_key, self.grade_info['grade_1']) # افتراضي للصف الأول إذا لم يوجد
        
@@ -91,6 +94,15 @@ class UnifiedPromptEngine:
 
 المعلومات المسترجعة:
 {retrieved_context_str}
+---
+"""
+
+        # بناء جزء سياق المحادثة
+        conversation_injection = ""
+        if conversation_context and conversation_context.strip():
+            conversation_injection = f"""
+---
+{conversation_context}
 ---
 """
         
@@ -114,44 +126,48 @@ class UnifiedPromptEngine:
     *   إذا كان هناك نص داخل الرسم (مثل الحروف، الأرقام، أو التسميات)، يجب أن يكون واضحًا ومقروءًا باللغة العربية. **استخدم خطًا يدعم العربية مثل 'Arial' أو 'Tahoma' وتأكد أن النص داخل حدود الرسم ولا يقطعه شيء.**
     *   **مهم جداً:** تأكد من أن كل عنصر رسم له سمات `fill` و `stroke` واضحة. تجنب الأشكال المتقاطعة بشكل غير مفهوم.
     *   **الهدف التعليمي للرسم:** يجب أن يخدم الرسم الغرض التعليمي بوضوح ويساعد الطفل على فهم المفهوم بشكل أفضل. فكر في الرسم كأداة تعليمية بصرية مباشرة.
-5.  **التركيز على السؤال:** أجب على سؤال الطفل المحدد. لا تخرج عن الموضوع.
+5.  **فهم السياق والمراجع:** إذا كان السؤال يحتوي على ضمائر (مثل "ه"، "هذا"، "الموضوع السابق") أو مراجع للمحادثات السابقة، استخدم سياق المحادثة المتوفر لفهم المقصود والإجابة بناءً عليه.
+6.  **التركيز على السؤال:** أجب على سؤال الطفل المحدد. لا تخرج عن الموضوع.
 
 **سؤال الطفل:** "{question}"
 """
         # اختيار البرومبت المتخصص بناءً على المادة
-        # هنا نمرر `common_instructions` و `context_injection` إلى كل دالة متخصصة
+        # هنا نمرر `common_instructions` و `context_injection` و `conversation_injection` إلى كل دالة متخصصة
         if app_subject_key == 'arabic':
-            return self._get_arabic_prompt(common_instructions, context_injection, grade_details)
+            return self._get_arabic_prompt(common_instructions, context_injection, conversation_injection, grade_details)
         elif app_subject_key == 'math':
-            return self._get_math_prompt(common_instructions, context_injection, grade_details)
+            return self._get_math_prompt(common_instructions, context_injection, conversation_injection, grade_details)
         elif app_subject_key == 'science':
-            return self._get_science_prompt(common_instructions, context_injection, grade_details)
+            return self._get_science_prompt(common_instructions, context_injection, conversation_injection, grade_details)
         elif app_subject_key == 'social': # الاجتماعيات أو المهارات الأسرية
-            return self._get_social_prompt(common_instructions, context_injection, grade_details)
+            return self._get_social_prompt(common_instructions, context_injection, conversation_injection, grade_details)
         elif app_subject_key == 'islamic':
-            return self._get_islamic_prompt(common_instructions, context_injection, grade_details)
+            return self._get_islamic_prompt(common_instructions, context_injection, conversation_injection, grade_details)
         elif app_subject_key == 'english':
-            return self._get_english_prompt(common_instructions, context_injection, grade_details, question) # الإنجليزية قد تحتاج السؤال الأصلي لأسلوب مختلف
+            return self._get_english_prompt(common_instructions, context_injection, conversation_injection, grade_details, question) # الإنجليزية قد تحتاج السؤال الأصلي لأسلوب مختلف
         else:
             # برومبت عام إذا لم تتطابق المادة (أو يمكنك إرجاع خطأ/رسالة)
             print(f"WARN: UnifiedPromptEngine - No specialized prompt for subject key '{app_subject_key}'. Using general prompt.")
-            return self._get_general_prompt(common_instructions, context_injection, grade_details)
+            return self._get_general_prompt(common_instructions, context_injection, conversation_injection, grade_details)
 
 
     # --- دوال البرومبت المتخصصة ---
-    # كل دالة الآن تستقبل common_instructions, context_injection, grade_details
+    # كل دالة الآن تستقبل common_instructions, context_injection, conversation_injection, grade_details
 
-    def _get_arabic_prompt(self, common_instructions: str, context_injection: str, grade_details: dict) -> str:
+    def _get_arabic_prompt(self, common_instructions: str, context_injection: str, 
+                          conversation_injection: str, grade_details: dict) -> str:
         subject_specific_instructions = f"""
 **تعليمات خاصة بمادة اللغة العربية ({grade_details['name']}):**
 *   ركز على الحروف، الكلمات، الحركات (الفتحة، الضمة، الكسرة)، المدود، التنوين، إلخ، حسب السؤال.
 *   إذا كان السؤال عن حرف، ارسم الحرف كبيرًا وواضحًا في وسط الرسم مع أي حركات مطلوبة. يمكنك إضافة شكل بسيط يتعلق بالحرف (مثل بطة لحرف الباء).
 *   استخدم أسلوبًا تفاعليًا، كأن تسأل الطفل "هل أنت مستعد لنتعلم حرف الألف يا بطل؟".
 *   تأكد من أن الحروف والكلمات تظهر بوضوح في وسط منطقة الرسم.
+*   إذا كان السؤال يشير إلى موضوع سابق في اللغة العربية، اربطه بذلك الموضوع وقدم شرحاً أو رسماً مكملاً.
 """
-        return f"{common_instructions}\n{subject_specific_instructions}\n{context_injection}\nتذكر، الرد يجب أن يكون JSON فقط بالبنية المحددة."
+        return f"{common_instructions}\n{subject_specific_instructions}\n{conversation_injection}\n{context_injection}\nتذكر، الرد يجب أن يكون JSON فقط بالبنية المحددة."
 
-    def _get_math_prompt(self, common_instructions: str, context_injection: str, grade_details: dict) -> str:
+    def _get_math_prompt(self, common_instructions: str, context_injection: str, 
+                        conversation_injection: str, grade_details: dict) -> str:
         subject_specific_instructions = f"""
 **تعليمات خاصة بمادة الرياضيات ({grade_details['name']}):**
 *   ركز على الأرقام، العد، الجمع، الطرح، الأشكال الهندسية البسيطة، إلخ، حسب السؤال.
@@ -159,10 +175,12 @@ class UnifiedPromptEngine:
 *   إذا كان عن الأشكال، ارسم الشكل المطلوب بوضوح في المنتصف مع تسميته إذا أمكن.
 *   اجعل الأرقام والأشكال تبدو مرحة وتظهر بوضوح في منطقة العرض.
 *   استخدم ألوان زاهية للعناصر الرياضية لجعلها جذابة.
+*   إذا كان السؤال يشير إلى عملية رياضية أو مفهوم تم شرحه سابقاً، اربطه بذلك المفهوم وقدم توضيحاً بصرياً مكملاً.
 """
-        return f"{common_instructions}\n{subject_specific_instructions}\n{context_injection}\nتذكر، الرد يجب أن يكون JSON فقط بالبنية المحددة."
+        return f"{common_instructions}\n{subject_specific_instructions}\n{conversation_injection}\n{context_injection}\nتذكر، الرد يجب أن يكون JSON فقط بالبنية المحددة."
 
-    def _get_science_prompt(self, common_instructions: str, context_injection: str, grade_details: dict) -> str:
+    def _get_science_prompt(self, common_instructions: str, context_injection: str, 
+                           conversation_injection: str, grade_details: dict) -> str:
         subject_specific_instructions = f"""
 **تعليمات خاصة بمادة العلوم ({grade_details['name']}):**
 *   ركز على مفاهيم العلوم البسيطة مثل أجزاء النبات، الحيوانات وأنواعها، حالات الماء، الحواس الخمس، دورة حياة الكائنات، أو تركيبات بسيطة.
@@ -171,10 +189,12 @@ class UnifiedPromptEngine:
 *   **إذا كان المفهوم يتضمن عملية أو دورة، ارسمها كمخطط تدفق بسيط مع أسهم واضحة تشير إلى الترتيب في منتصف المساحة.**
 *   اجعل الرسم نظيفًا، سهل القراءة، ومفيدًا بصريًا. استخدم ألوانًا واقعية تقريبًا للمكونات العلمية (مثل الأخضر للنبات، الأزرق للماء).
 *   شجع الفضول العلمي بأسلوب "هل تعلم أن...؟" أو "انظر كيف...".
+*   إذا كان السؤال يشير إلى مفهوم علمي تم شرحه سابقاً، اربطه بذلك المفهوم وقدم رسماً توضيحياً أكثر تفصيلاً أو من زاوية مختلفة.
 """
-        return f"{common_instructions}\n{subject_specific_instructions}\n{context_injection}\nتذكر، الرد يجب أن يكون JSON فقط بالبنية المحددة."
+        return f"{common_instructions}\n{subject_specific_instructions}\n{conversation_injection}\n{context_injection}\nتذكر، الرد يجب أن يكون JSON فقط بالبنية المحددة."
 
-    def _get_social_prompt(self, common_instructions: str, context_injection: str, grade_details: dict) -> str:
+    def _get_social_prompt(self, common_instructions: str, context_injection: str, 
+                          conversation_injection: str, grade_details: dict) -> str:
         # هذا يمكن أن يكون للاجتماعيات أو المهارات الأسرية
         subject_specific_instructions = f"""
 **تعليمات خاصة بمادة المهارات الحياتية/الاجتماعية ({grade_details['name']}):**
@@ -182,20 +202,24 @@ class UnifiedPromptEngine:
 *   يمكن أن تكون الرسومات عبارة عن مشاهد بسيطة أو أيقونات تمثل المفهوم في وسط الرسم.
 *   استخدم أسلوبًا يشجع على السلوكيات الجيدة والقيم.
 *   تأكد من أن العناصر الاجتماعية تظهر بوضوح ومرتبة في منطقة العرض.
+*   إذا كان السؤال يشير إلى موضوع اجتماعي أو مهارة حياتية تم مناقشتها سابقاً، اربطه بذلك الموضوع وقدم أمثلة إضافية أو رسماً مكملاً.
 """
-        return f"{common_instructions}\n{subject_specific_instructions}\n{context_injection}\nتذكر، الرد يجب أن يكون JSON فقط بالبنية المحددة."
+        return f"{common_instructions}\n{subject_specific_instructions}\n{conversation_injection}\n{context_injection}\nتذكر، الرد يجب أن يكون JSON فقط بالبنية المحددة."
 
-    def _get_islamic_prompt(self, common_instructions: str, context_injection: str, grade_details: dict) -> str:
+    def _get_islamic_prompt(self, common_instructions: str, context_injection: str, 
+                           conversation_injection: str, grade_details: dict) -> str:
         subject_specific_instructions = f"""
 **تعليمات خاصة بمادة التربية الإسلامية ({grade_details['name']}):**
 *   ركز على المفاهيم الإسلامية الأساسية المناسبة للعمر مثل أركان الإسلام، الوضوء، الصلاة (بطريقة مبسطة جدًا)، بعض الأدعية القصيرة، قصص الأنبياء المبسطة.
 *   يجب أن تكون الرسومات محتشمة وبسيطة، ويمكن استخدام رموز إسلامية بسيطة (هلال، نجمة، مسجد بسيط) في وسط الرسم. تجنب رسم صور ذات تفاصيل دقيقة للكائنات الحية إذا لم يكن ضروريًا.
 *   استخدم أسلوبًا هادئًا ولطيفًا يغرس القيم الإسلامية.
 *   تأكد من أن الرموز الإسلامية تظهر بوضوح وتوازن في منطقة العرض.
+*   إذا كان السؤال يشير إلى مفهوم إسلامي أو قيمة تم شرحها سابقاً، اربطه بذلك المفهوم وقدم رسماً أو مثالاً إضافياً يعزز الفهم.
 """
-        return f"{common_instructions}\n{subject_specific_instructions}\n{context_injection}\nتذكر، الرد يجب أن يكون JSON فقط بالبنية المحددة."
+        return f"{common_instructions}\n{subject_specific_instructions}\n{conversation_injection}\n{context_injection}\nتذكر، الرد يجب أن يكون JSON فقط بالبنية المحددة."
    
-    def _get_english_prompt(self, common_instructions: str, context_injection: str, grade_details: dict, original_question: str) -> str:
+    def _get_english_prompt(self, common_instructions: str, context_injection: str, 
+                           conversation_injection: str, grade_details: dict, original_question: str) -> str:
         # لغة الشرح هنا ستكون الإنجليزية، لكن تعليمات البرومبت تبقى بالعربية للنموذج
         # تعديل common_instructions ليعكس أن الشرح سيكون بالإنجليزية
         
@@ -214,7 +238,8 @@ class UnifiedPromptEngine:
     *   ألوان زاهية: {', '.join(self.base_svg_config['primary_colors'])}. لون النص داخل SVG: `{self.base_svg_config['text_color']}`.
     *   النص داخل الرسم بالإنجليزية (مثل الحروف A, B, C، الكلمات cat, dog)، بحجم مناسب (e.g., `{grade_details['svg_font_size_large']}`, `{grade_details['svg_font_size_small']}`).
     *   جميع العناصر داخل حدود SVG، والعناصر الرئيسية في المنتصف (حوالي x=350, y=250).
-5.  **التركيز على السؤال:** أجب على سؤال الطفل المحدد.
+5.  **فهم السياق والمراجع:** إذا كان السؤال يحتوي على مراجع للمحادثات السابقة، استخدم سياق المحادثة المتوفر لفهم المقصود والإجابة بناءً عليه.
+6.  **التركيز على السؤال:** أجب على سؤال الطفل المحدد.
 
 **سؤال الطفل (قد يكون بالعربية أو الإنجليزية، تعامل معه بناءً على محتواه):** "{original_question}"
 """
@@ -225,10 +250,12 @@ class UnifiedPromptEngine:
 *   إذا كان السؤال "ترجم كلمة كذا", قدم الترجمة والشرح بالإنجليزية إذا أمكن، أو حسب ما يبدو مناسبًا للسؤال.
 *   استخدم أسلوبًا تفاعليًا: "Hello little champion! Are you ready to learn about the letter A?".
 *   تأكد من أن النصوص الإنجليزية تظهر بوضوح في وسط منطقة العرض.
+*   إذا كان السؤال يشير إلى كلمة أو حرف إنجليزي تم شرحه سابقاً، اربطه بذلك المفهوم وقدم رسماً أو مثالاً إضافياً.
 """
-        return f"{english_specific_common_instructions}\n{subject_specific_instructions}\n{context_injection}\nRemember, the response MUST be JSON only with the specified structure."
+        return f"{english_specific_common_instructions}\n{subject_specific_instructions}\n{conversation_injection}\n{context_injection}\nRemember, the response MUST be JSON only with the specified structure."
 
-    def _get_general_prompt(self, common_instructions: str, context_injection: str, grade_details: dict) -> str:
+    def _get_general_prompt(self, common_instructions: str, context_injection: str, 
+                           conversation_injection: str, grade_details: dict) -> str:
         # هذا يستخدم إذا لم يتم تحديد مادة معينة أو لم يكن هناك قالب مخصص
         general_specific_instructions = f"""
 **تعليمات إضافية للأسئلة العامة ({grade_details['name']}):**
@@ -236,8 +263,9 @@ class UnifiedPromptEngine:
 *   إذا كان السؤال يطلب رسمًا، اجعل الرسم بسيطًا وملونًا ويعكس موضوع السؤال في وسط المساحة.
 *   إذا لم يكن السؤال واضحًا، يمكنك أن تطلب من الطفل توضيحًا بسيطًا كجزء من الشرح (ولكن لا تزال تقدم إجابة مبدئية).
 *   تأكد من أن جميع العناصر المرسومة تظهر بوضوح داخل منطقة العرض.
+*   إذا كان السؤال يشير إلى موضوع تم مناقشته سابقاً، اربطه بذلك الموضوع وقدم شرحاً أو رسماً مكملاً.
 """
-        return f"{common_instructions}\n{general_specific_instructions}\n{context_injection}\nتذكر، الرد يجب أن يكون JSON فقط بالبنية المحددة."
+        return f"{common_instructions}\n{general_specific_instructions}\n{conversation_injection}\n{context_injection}\nتذكر، الرد يجب أن يكون JSON فقط بالبنية المحددة."
 
 
 if __name__ == "__main__":
@@ -262,6 +290,31 @@ if __name__ == "__main__":
     prompt_with_context = engine.get_specialized_prompt(test_question_arabic, test_subject_arabic, test_grade, retrieved_context_str=sample_retrieved_context)
     print(f"--- Prompt for Arabic (Grade 1) - With Context (length: {len(prompt_with_context)}) ---")
     # print(prompt_with_context)
+    print("------\n")
+
+    # اختبار مع سياق المحادثة
+    sample_conversation_context = """
+**سياق المحادثة السابقة:**
+الطالب سأل: اشرح لي الجمع
+المعلم أجاب: الجمع هو عندما نضيف أرقام مع بعضها البعض...
+
+**آخر موضوع تم مناقشته:** الجمع
+
+**ملاحظة مهمة:** السؤال الحالي "ارسم لي الجمع" يبدو أنه يشير إلى الموضوع السابق. 
+يرجى فهم السياق والإجابة بناءً على ما تم مناقشته مسبقاً.
+إذا كان السؤال يطلب رسماً أو توضيحاً إضافياً للموضوع السابق، فقم بإنتاج رسم مناسب.
+"""
+    
+    test_question_with_reference = "ارسم لي الجمع"
+    prompt_with_conversation = engine.get_specialized_prompt(
+        test_question_with_reference, 
+        'math', 
+        test_grade, 
+        retrieved_context_str="1+2 يساوي ثلاثة. يمكن استخدام التفاح للعد.",
+        conversation_context=sample_conversation_context
+    )
+    print(f"--- Prompt for Math (Grade 1) - With Conversation Context (length: {len(prompt_with_conversation)}) ---")
+    # print(prompt_with_conversation)
     print("------\n")
 
     test_question_math = "اشرح لي كيف اجمع ١ زائد ٢ بالرسم"
