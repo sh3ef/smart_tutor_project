@@ -1,4 +1,4 @@
-# app.py - التطبيق الرئيسي للمعلم الذكي (مع ميزة Chat History Memory)
+# app.py - التطبيق الرئيسي للمعلم الذكي (مع ميزة Chat History Memory والنظام الذكي للرسم)
 
 import os
 import sys
@@ -281,7 +281,7 @@ class ChatHistoryAnalyzer:
         return context_summary
 
 def classify_question_type(question: str, chat_history: List[Dict] = None) -> Dict[str, any]:
-    """تصنيف نوع السؤال مع مراعاة تاريخ المحادثة واتخاذ قرار ذكي للرسم"""
+    """تصنيف نوع السؤال مع مراعاة تاريخ المحادثة واتخاذ قرار ذكي للرسم المحسن"""
     question_lower = question.lower().strip()
     analyzer = ChatHistoryAnalyzer()
     
@@ -316,21 +316,28 @@ def classify_question_type(question: str, chat_history: List[Dict] = None) -> Di
         r'قسمة.*\d+', r'معادلة', r'حساب', r'عملية.*حسابية'
     ]
     
-    # مواضيع تحتاج رسم بشكل طبيعي (قرار ذكي)
-    visual_learning_topics = [
-        # رياضيات
-        r'جمع', r'طرح', r'ضرب', r'قسمة', r'عد', r'أرقام', r'أعداد', r'عملية',
+    # مواضيع تحتاج رسم بشكل طبيعي (قرار ذكي محسن)
+    high_priority_visual_topics = [
+        # رياضيات - أولوية عالية
+        r'جمع', r'طرح', r'ضرب', r'قسمة', r'عملية.*حسابية',
         r'مربع', r'مثلث', r'دائرة', r'مستطيل', r'شكل', r'أشكال', r'هندسة',
         r'كسر', r'كسور', r'نصف', r'ربع', r'ثلث',
-        # علوم
+        r'أرقام', r'أعداد', r'عد', r'ترقيم',
+        # علوم - أولوية عالية  
         r'نبات', r'نباتات', r'شجرة', r'زهرة', r'ورقة', r'جذر', r'ساق',
         r'حيوان', r'حيوانات', r'قطة', r'كلب', r'فيل', r'أسد', r'طائر', r'سمك',
-        r'جسم الإنسان', r'عين', r'أذن', r'يد', r'قدم', r'رأس',
+        r'جسم.*الإنسان', r'عين', r'أذن', r'يد', r'قدم', r'رأس',
+        r'دورة.*حياة', r'نمو', r'تكاثر',
+        # لغة عربية - حروف فقط
+        r'حرف', r'حروف', r'أبجدية',
+        r'خط', r'كتابة.*حرف'
+    ]
+    
+    medium_priority_visual_topics = [
+        # علوم أخرى
         r'طقس', r'مطر', r'شمس', r'سحاب', r'ثلج', r'رياح',
-        r'مجموعة شمسية', r'كواكب', r'قمر', r'نجوم',
-        # لغة عربية
-        r'حرف', r'حروف', r'أبجدية', r'كتابة', r'خط',
-        r'كلمة', r'كلمات', r'جملة', r'جمل',
+        r'مجموعة.*شمسية', r'كواكب', r'قمر', r'نجوم',
+        r'ماء', r'هواء', r'تربة',
         # ألوان وأشياء بصرية
         r'لون', r'ألوان', r'أحمر', r'أزرق', r'أخضر', r'أصفر', r'أسود', r'أبيض',
         r'كبير', r'صغير', r'طويل', r'قصير', r'سميك', r'رفيع'
@@ -341,7 +348,8 @@ def classify_question_type(question: str, chat_history: List[Dict] = None) -> Di
         r'قاعدة', r'قانون', r'تعريف', r'معنى', r'مفهوم',
         r'تاريخ', r'قصة', r'حكاية', r'سيرة',
         r'دعاء', r'آية', r'حديث', r'ذكر',
-        r'إملاء', r'نحو', r'صرف', r'بلاغة'
+        r'إملاء', r'نحو', r'صرف', r'بلاغة',
+        r'كلمة', r'كلمات', r'جملة', r'جمل'  # إلا إذا كان حروف
     ]
     
     is_greeting = any(re.search(pattern, question_lower) for pattern in greetings_patterns)
@@ -349,42 +357,63 @@ def classify_question_type(question: str, chat_history: List[Dict] = None) -> Di
     explicit_drawing_requested = any(re.search(pattern, question_lower) for pattern in explicit_drawing_patterns)
     is_math_question = any(re.search(pattern, question_lower) for pattern in math_patterns)
     
-    # فحص المواضيع البصرية
-    is_visual_topic = any(re.search(pattern, question_lower) for pattern in visual_learning_topics)
+    # فحص المواضيع البصرية بأولويات
+    is_high_priority_visual = any(re.search(pattern, question_lower) for pattern in high_priority_visual_topics)
+    is_medium_priority_visual = any(re.search(pattern, question_lower) for pattern in medium_priority_visual_topics)
     is_text_only_topic = any(re.search(pattern, question_lower) for pattern in text_only_topics)
     
     # تحديد ما إذا كان السؤال تعليمي
     is_educational = needs_curriculum_search or is_math_question or len(question.split()) > 3
     
-    # القرار الذكي للرسم
+    # القرار الذكي المحسن للرسم
     smart_drawing_decision = False
+    drawing_confidence = 0  # من 0 إلى 100
     
     if explicit_drawing_requested:
-        # إذا طلب الرسم صراحة
+        # إذا طلب الرسم صراحة - أولوية قصوى
         smart_drawing_decision = True
-    elif is_text_only_topic:
-        # المواضيع النصية لا تحتاج رسم
+        drawing_confidence = 100
+    elif is_text_only_topic and not is_high_priority_visual:
+        # المواضيع النصية لا تحتاج رسم إلا إذا كانت عالية الأولوية
         smart_drawing_decision = False
-    elif is_visual_topic or is_math_question:
-        # المواضيع البصرية والرياضية تحتاج رسم
+        drawing_confidence = 10
+    elif is_high_priority_visual:
+        # المواضيع عالية الأولوية تحتاج رسم دائماً
         smart_drawing_decision = True
+        drawing_confidence = 90
+    elif is_math_question:
+        # العمليات الرياضية تحتاج رسم عادة
+        smart_drawing_decision = True
+        drawing_confidence = 85
+    elif is_medium_priority_visual:
+        # المواضيع متوسطة الأولوية
+        smart_drawing_decision = True
+        drawing_confidence = 70
     elif has_references and is_clarification:
         # طلب توضيح للموضوع السابق
         smart_drawing_decision = True
-    elif is_educational and any(word in question_lower for word in ['كيف', 'أين', 'متى', 'لماذا']):
+        drawing_confidence = 80
+    elif is_educational and any(word in question_lower for word in ['كيف', 'أين', 'متى', 'لماذا', 'how', 'where', 'when', 'why']):
         # الأسئلة التفسيرية التعليمية
         smart_drawing_decision = True
+        drawing_confidence = 60
+    elif is_educational and not is_greeting:
+        # أسئلة تعليمية عامة
+        smart_drawing_decision = True
+        drawing_confidence = 50
     
     # قرار نهائي: رسم فقط للمواضيع التعليمية وليس التحيات
-    needs_drawing = smart_drawing_decision and not is_greeting
+    needs_drawing = smart_drawing_decision and not is_greeting and drawing_confidence >= 50
     
     return {
         'is_greeting': is_greeting,
         'is_educational': is_educational,
         'needs_curriculum_search': is_educational and not is_greeting,
         'needs_drawing': needs_drawing,
+        'drawing_confidence': drawing_confidence,
         'is_math_question': is_math_question,
-        'is_visual_topic': is_visual_topic,
+        'is_high_priority_visual': is_high_priority_visual,
+        'is_medium_priority_visual': is_medium_priority_visual,
         'is_text_only_topic': is_text_only_topic,
         'explicit_drawing_requested': explicit_drawing_requested,
         'question_complexity': len(question.split()),
@@ -392,26 +421,33 @@ def classify_question_type(question: str, chat_history: List[Dict] = None) -> Di
         'is_clarification': is_clarification,
         'is_correction': is_correction,
         'needs_context': has_references or is_clarification or is_correction,
-        'smart_decision_reason': _get_drawing_decision_reason(smart_drawing_decision, is_visual_topic, is_math_question, explicit_drawing_requested, is_text_only_topic, has_references, is_clarification)
+        'smart_decision_reason': _get_drawing_decision_reason(
+            needs_drawing, is_high_priority_visual, is_medium_priority_visual, 
+            is_math_question, explicit_drawing_requested, is_text_only_topic, 
+            has_references, is_clarification, drawing_confidence
+        )
     }
 
-def _get_drawing_decision_reason(smart_decision: bool, is_visual: bool, is_math: bool, 
-                               explicit: bool, is_text_only: bool, has_refs: bool, is_clarif: bool) -> str:
+def _get_drawing_decision_reason(needs_drawing: bool, is_high_visual: bool, is_medium_visual: bool,
+                               is_math: bool, explicit: bool, is_text_only: bool, 
+                               has_refs: bool, is_clarif: bool, confidence: int) -> str:
     """شرح سبب قرار الرسم للتشخيص"""
     if explicit:
-        return "طلب رسم صريح"
-    elif is_text_only:
-        return "موضوع نصي لا يحتاج رسم"
-    elif is_visual:
-        return "موضوع بصري يحتاج توضيح بالرسم"
+        return f"طلب رسم صريح (ثقة: {confidence}%)"
+    elif is_text_only and not is_high_visual:
+        return f"موضوع نصي لا يحتاج رسم (ثقة: {confidence}%)"
+    elif is_high_visual:
+        return f"موضوع عالي الأولوية يحتاج رسم (ثقة: {confidence}%)"
     elif is_math:
-        return "موضوع رياضي يحتاج رسم توضيحي"
+        return f"موضوع رياضي يحتاج رسم توضيحي (ثقة: {confidence}%)"
+    elif is_medium_visual:
+        return f"موضوع متوسط الأولوية يستفيد من الرسم (ثقة: {confidence}%)"
     elif has_refs and is_clarif:
-        return "طلب توضيح للموضوع السابق"
-    elif smart_decision:
-        return "قرار ذكي: الموضوع يستفيد من الرسم"
+        return f"طلب توضيح للموضوع السابق (ثقة: {confidence}%)"
+    elif needs_drawing:
+        return f"قرار ذكي: الموضوع يستفيد من الرسم (ثقة: {confidence}%)"
     else:
-        return "لا يحتاج رسم"
+        return f"لا يحتاج رسم (ثقة: {confidence}%)"
 
 def get_greeting_response(question: str, grade_key: str, subject_key: str) -> Dict[str, any]:
     """إنشاء رد مناسب للتحيات والأسئلة الاجتماعية"""
@@ -487,20 +523,21 @@ def create_smart_prompt(question: str, question_type: Dict[str, any], app_subjec
         conversation_context=conversation_context
     )
     
-    # إضافة تعليمات خاصة بقرار الرسم الذكي
+    # إضافة تعليمات خاصة بقرار الرسم الذكي المحسن
     if question_type['needs_drawing']:
         smart_drawing_instruction = f"""
-**تعليمة ذكية للرسم:**
+**تعليمة ذكية للرسم (ثقة {question_type['drawing_confidence']}%):**
 تم اتخاذ قرار ذكي بأن هذا السؤال يحتاج رسم توضيحي.
 السبب: {question_type.get('smart_decision_reason', 'موضوع يستفيد من التوضيح البصري')}
 
 يرجى إنتاج رسم SVG مناسب وواضح يساعد في فهم الموضوع بشكل بصري.
 اجعل الرسم بسيط ومناسب لعمر الطفل وملون وجذاب.
+**تأكد من أن الرسم يساهم فعلاً في الفهم وليس مجرد زخرفة.**
 """
         base_prompt += "\n" + smart_drawing_instruction
     else:
         no_drawing_instruction = f"""
-**تعليمة عدم الرسم:**
+**تعليمة عدم الرسم (ثقة {question_type['drawing_confidence']}%):**
 تم اتخاذ قرار ذكي بأن هذا السؤال لا يحتاج رسم توضيحي.
 السبب: {question_type.get('smart_decision_reason', 'موضوع لا يستفيد من الرسم')}
 
@@ -958,65 +995,14 @@ def process_user_question_improved(question: str, gemini_client, kb_manager, pro
         'quality_issues': response.get("quality_issues", []),
         'search_status': search_status,
         'drawing_decision': question_type.get('smart_decision_reason', 'غير محدد'),
+        'drawing_confidence': question_type.get('drawing_confidence', 0),
         'question_analysis': {
-            'is_visual_topic': question_type.get('is_visual_topic', False),
+            'is_high_priority_visual': question_type.get('is_high_priority_visual', False),
+            'is_medium_priority_visual': question_type.get('is_medium_priority_visual', False),
             'is_math_question': question_type.get('is_math_question', False),
             'explicit_drawing': question_type.get('explicit_drawing_requested', False),
             'needs_drawing': question_type['needs_drawing']
         }
-    }}. اشرح للطفل: {question}"
-    
-    # إرسال الطلب لـ Gemini
-    if gemini_client:
-        response = gemini_client.query_for_explanation_and_svg(specialized_prompt)
-    else:
-        response = {
-            "text_explanation": "عذرًا، المعلم الذكي غير جاهز حالياً. يرجى المحاولة لاحقاً.",
-            "svg_code": None,
-            "quality_scores": {},
-            "quality_issues": ["المعلم الذكي غير متاح"]
-        }
-    
-    # تطبيق القرار الذكي للرسم: إزالة الرسم إذا لم يقرر النظام أنه مطلوب
-    if not question_type['needs_drawing']:
-        response['svg_code'] = None
-    
-    return {
-        'explanation': response.get("text_explanation", "عذرًا، لم أتمكن من إنتاج شرح مناسب."),
-        'svg_code': response.get("svg_code"),
-        'quality_scores': response.get("quality_scores", {}),
-        'quality_issues': response.get("quality_issues", []),
-        'search_status': search_status,
-        'drawing_decision': question_type.get('smart_decision_reason', 'غير محدد'),
-        'question_analysis': {
-            'is_visual_topic': question_type.get('is_visual_topic', False),
-            'is_math_question': question_type.get('is_math_question', False),
-            'explicit_drawing': question_type.get('explicit_drawing_requested', False),
-            'needs_drawing': question_type['needs_drawing']
-        }
-    }}. اشرح للطفل: {question}"
-    
-    # إرسال الطلب لـ Gemini
-    if gemini_client:
-        response = gemini_client.query_for_explanation_and_svg(specialized_prompt)
-    else:
-        response = {
-            "text_explanation": "عذرًا، المعلم الذكي غير جاهز حالياً. يرجى المحاولة لاحقاً.",
-            "svg_code": None,
-            "quality_scores": {},
-            "quality_issues": ["المعلم الذكي غير متاح"]
-        }
-    
-    # إزالة الرسم إذا لم يكن مطلوباً (إلا إذا كان طلب توضيح)
-    if not question_type['needs_drawing'] and not question_type['is_clarification']:
-        response['svg_code'] = None
-    
-    return {
-        'explanation': response.get("text_explanation", "عذرًا، لم أتمكن من إنتاج شرح مناسب."),
-        'svg_code': response.get("svg_code"),
-        'quality_scores': response.get("quality_scores", {}),
-        'quality_issues': response.get("quality_issues", []),
-        'search_status': search_status
     }
 
 def initialize_session_state():
@@ -1168,13 +1154,22 @@ def display_message(message: Dict, is_new: bool = False):
                         mime="image/svg+xml",
                         key=f"download_svg_{message.get('id', 'unknown')}"
                     )
+                    
+                    # عرض معلومات قرار الرسم إذا كانت متوفرة
+                    if 'drawing_decision' in message:
+                        st.caption(f"🧠 **قرار الرسم:** {message['drawing_decision']}")
+                    
+                    if 'drawing_confidence' in message:
+                        confidence = message['drawing_confidence']
+                        if confidence > 0:
+                            st.caption(f"📊 **ثقة القرار:** {confidence}%")
            
             # عرض الوقت
             if 'timestamp' in message:
                 st.caption(f"🕒 {message['timestamp']}")
 
 def main():
-    """الدالة الرئيسية المحسنة للتطبيق مع دعم Chat History Memory"""
+    """الدالة الرئيسية المحسنة للتطبيق مع دعم Chat History Memory والنظام الذكي للرسم"""
    
     # تهيئة حالة الجلسة
     initialize_session_state()
@@ -1223,6 +1218,7 @@ def main():
             st.write(f"أهلاً وسهلاً! أنا معلمك الذكي للصف {GRADE_SUBJECTS[selected_grade]['name']} في مادة {GRADE_SUBJECTS[selected_grade]['subjects'][selected_subject]}.")
             if GEMINI_CLIENT_AVAILABLE and gemini_client:
                 st.write("اسألني أي سؤال وسأجيبك بشرح مبسط ورسم توضيحي عند الحاجة! 😊")
+                st.write("💡 **النظام الذكي للرسم:** سأقرر بنفسي متى أحتاج لرسم توضيحي لمساعدتك في الفهم!")
             else:
                 st.write("يمكنني الإجابة على أسئلتك النصية! 📚")
        
@@ -1308,6 +1304,18 @@ def main():
                                 mime="image/svg+xml",
                                 key=f"download_svg_new"
                             )
+                            
+                            # عرض معلومات قرار الرسم
+                            if response_data.get('drawing_decision'):
+                                st.caption(f"🧠 **قرار الرسم:** {response_data['drawing_decision']}")
+                            
+                            if response_data.get('drawing_confidence', 0) > 0:
+                                confidence = response_data['drawing_confidence']
+                                st.caption(f"📊 **ثقة القرار:** {confidence}%")
+                    else:
+                        # عرض سبب عدم الرسم إذا لم يكن هناك رسم
+                        if response_data.get('drawing_decision'):
+                            st.caption(f"💭 **لماذا لا يوجد رسم؟** {response_data['drawing_decision']}")
                    
                     # إضافة إجابة المساعد للمحادثة
                     add_message("assistant", "", **response_data)
